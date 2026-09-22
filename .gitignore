@@ -1,0 +1,19 @@
+# Dépendances et fichiers générés
+backend/vendor/
+backend/node_modules/
+backend/.env
+backend/storage/app/public/*
+backend/storage/logs/*
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/public/storage
+backend/public/apks/*
+mobile/*/build/
+mobile/*/.dart_tool/
+mobile/*/android/.gradle/
+mobile/*/android/key.properties
+mobile/*/ios/Pods/
+*.jks
+*.keystore
+*.bak-*

@@ -1,0 +1,14 @@
+dart run flutter_native_splash:create
+
+flutter pub get
+dart run flutter_launcher_icons
+
+
+=================================switch between apps
+change app_colors
+rename images
+run command of icons and splash screens
+update package-name var
+update base url
+update version in config var
+update version pubspec.yaml

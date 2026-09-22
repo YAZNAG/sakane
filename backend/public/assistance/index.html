@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistance — Alwed Immobilier</title>
+<meta name="description" content="Aide et contact pour l'application Alwed Immobilier de la société ALWED LH, Agadir.">
+<style>
+  :root{
+    --turquoise:#43B2BC;
+    --turquoise-pale:#e4f3f5;
+    --ardoise:#697274;
+    --encre:#1b2222;
+    --doux:#5c6a6c;
+    --trait:#e0e6e6;
+    --fond:#f6f8f8;
+    --carte:#ffffff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --turquoise:#5ecad4;
+      --turquoise-pale:#12312f;
+      --ardoise:#9aa4a6;
+      --encre:#e9eeee;
+      --doux:#9aa8aa;
+      --trait:#2a3333;
+      --fond:#111716;
+      --carte:#181f1e;
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--fond);
+    color:var(--encre);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px;
+    line-height:1.65;
+  }
+  .page{max-width:44rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+
+  header{text-align:center;margin-bottom:2.5rem}
+  /* Le logo est decoupe sur fond blanc : un cartouche l'isole du fond
+     de page, qui suit le theme du lecteur. */
+  .cartouche{
+    display:inline-block;
+    background:#ffffff;
+    border-radius:.7rem;
+    padding:1rem 1.4rem;
+    box-shadow:0 1px 2px rgba(0,0,0,.06),0 10px 26px -18px rgba(0,0,0,.35);
+  }
+  .cartouche img{display:block;width:100%;max-width:17rem;height:auto}
+  .sous-marque{
+    font-size:.82rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--doux);margin-top:.6rem;
+  }
+
+  h1{
+    font-size:clamp(1.7rem,5vw,2.3rem);
+    line-height:1.2;letter-spacing:-.01em;
+    margin:0 0 .6rem;
+  }
+  .intro{color:var(--doux);margin-bottom:2.25rem;max-width:34rem}
+
+  h2{
+    font-size:1.15rem;
+    margin:0 0 .9rem;
+    padding-bottom:.5rem;
+    border-bottom:2px solid var(--turquoise);
+    display:inline-block;
+  }
+  section{margin-bottom:2.5rem}
+
+  .contacts{display:grid;gap:.7rem}
+  .contact{
+    display:flex;align-items:baseline;gap:.85rem;
+    background:var(--carte);
+    border:1px solid var(--trait);
+    border-left:3px solid var(--turquoise);
+    border-radius:.5rem;
+    padding:.85rem 1.05rem;
+  }
+  .contact .quoi{
+    font-size:.76rem;font-weight:700;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--turquoise);
+    min-width:6.5rem;
+  }
+  .contact .valeur{font-size:1rem;font-weight:600;word-break:break-word}
+  .contact a{color:inherit;text-decoration:none;border-bottom:1px solid var(--trait)}
+  .contact a:hover,.contact a:focus{border-bottom-color:var(--turquoise)}
+
+  .horaires{
+    margin-top:.9rem;font-size:.92rem;color:var(--doux);
+  }
+
+  details{
+    background:var(--carte);
+    border:1px solid var(--trait);
+    border-radius:.5rem;
+    padding:.85rem 1.05rem;
+    margin-bottom:.6rem;
+  }
+  summary{font-weight:600;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+ ";color:var(--turquoise);font-weight:700}
+  details[open] summary::before{content:"– "}
+  details p{margin-top:.6rem;color:var(--doux);font-size:.95rem}
+
+  .encadre{
+    background:var(--turquoise-pale);
+    border:1px solid var(--turquoise);
+    border-radius:.5rem;
+    padding:1.05rem 1.25rem;
+  }
+  .encadre p{font-size:.95rem}
+  .encadre p + p{margin-top:.6rem}
+
+  footer{
+    margin-top:3rem;padding-top:1.2rem;
+    border-top:1px solid var(--trait);
+    font-size:.85rem;color:var(--doux);text-align:center;
+  }
+  footer p{margin-bottom:.3rem}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="cartouche">
+      <img src="marque.png" alt="STE ALWED LH — Agence immobilière">
+    </div>
+    <p class="sous-marque">Assistance</p>
+  </header>
+
+  <h1>Une question sur l'application ?</h1>
+  <p class="intro">
+    Alwed Immobilier est l'outil de gestion de la société ALWED LH, à Agadir.
+    L'équipe répond directement, par téléphone, WhatsApp ou courriel.
+  </p>
+
+  <section>
+    <h2>Nous joindre</h2>
+    <div class="contacts">
+      <div class="contact">
+        <span class="quoi">Téléphone</span>
+        <span class="valeur"><a href="tel:+212700786182">07 00 78 61 82</a></span>
+      </div>
+      <div class="contact">
+        <span class="quoi">WhatsApp</span>
+        <span class="valeur"><a href="https://wa.me/212700786182">07 00 78 61 82</a></span>
+      </div>
+      <div class="contact">
+        <span class="quoi">Courriel</span>
+        <span class="valeur"><a href="mailto:alwad.lh24@gmail.com">alwad.lh24@gmail.com</a></span>
+      </div>
+      <div class="contact">
+        <span class="quoi">Adresse</span>
+        <span class="valeur">Rue Aglou, n° 36, Hay Salam — Agadir, 80000 Maroc</span>
+      </div>
+    </div>
+    <p class="horaires">Du lundi au samedi, de 9 h à 19 h.</p>
+  </section>
+
+  <section>
+    <h2>Questions fréquentes</h2>
+
+    <details>
+      <summary>Comment obtenir un compte&nbsp;?</summary>
+      <p>
+        L'application est réservée aux collaborateurs de l'agence. Les comptes
+        sont créés par l'administrateur ; adressez-vous à lui, ou écrivez-nous
+        avec votre nom et votre fonction.
+      </p>
+    </details>
+
+    <details>
+      <summary>J'ai oublié mon mot de passe.</summary>
+      <p>
+        Utilisez « Mot de passe oublié » sur l'écran de connexion : un code
+        vous parvient sur le numéro enregistré. Si ce numéro n'est plus le
+        vôtre, contactez-nous et nous le mettrons à jour.
+      </p>
+    </details>
+
+    <details>
+      <summary>L'application fonctionne-t-elle sans réseau&nbsp;?</summary>
+      <p>
+        Oui. Ce que vous saisissez hors couverture est conservé sur l'appareil
+        et transmis dès le retour de la connexion. Un voyant vous indique
+        l'état de la synchronisation.
+      </p>
+    </details>
+
+    <details>
+      <summary>Un contrat ou une facture ne s'affiche pas.</summary>
+      <p>
+        Vérifiez d'abord votre connexion, puis rouvrez la réservation. Si le
+        document reste indisponible, signalez-nous le numéro de la réservation
+        et nous le régénérerons.
+      </p>
+    </details>
+
+    <details>
+      <summary>Comment mettre l'application à jour&nbsp;?</summary>
+      <p>
+        Sur iPhone, par l'App Store. Sur Android, l'application vous prévient
+        et propose l'installation ; vous pouvez aussi la télécharger depuis le
+        lien communiqué par l'agence.
+      </p>
+    </details>
+  </section>
+
+  <section>
+    <h2>Vos données</h2>
+    <div class="encadre">
+      <p>
+        <strong>Suppression du compte.</strong> Vous pouvez demander à tout
+        moment la suppression de votre compte et des données qui s'y
+        rattachent. Écrivez à
+        <a href="mailto:alwad.lh24@gmail.com">alwad.lh24@gmail.com</a> depuis
+        l'adresse liée à votre compte, ou appelez le 07 00 78 61 82. La
+        demande est traitée sous trente jours.
+      </p>
+      <p>
+        Les données des réservations et des contrats, qui engagent l'agence
+        vis-à-vis de ses clients, sont conservées le temps que la loi impose,
+        même après la fermeture d'un compte collaborateur.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>STE ALWED LH</strong> — Agence immobilière</p>
+    <p>Rue Aglou, n° 36, Hay Salam — Agadir, Maroc</p>
+    <p><a href="/confidentialite/">Politique de confidentialité</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
