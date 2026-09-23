@@ -1,52 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:immobilier/components/custom_button.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/bloc/add_modify_imm_bloc.dart';
+import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/assistant_bien_commun.dart';
+import 'package:immobilier/features/ventes/ui/components/mandat_outils.dart';
 import 'package:immobilier/models/realestate.dart';
 import 'package:immobilier/routes.dart';
 
-import '../../../../../components/form_field.dart';
-import '../../../../../core/validator/validator.dart';
 import '../../../../../models/category.dart';
-import '../../../../../models/etat.dart';
 import '../../../../../models/owner.dart';
 import '../../../../../models/type_transaction.dart';
-import 'package:immobilier/core/constants/app_colors.dart';
 
-
-
+/// Étape 1 — Informations générales.
+///
+/// Le titre, la description, la famille du bien, son prix, sa catégorie et
+/// son propriétaire : de quoi reconnaître le bien avant de le situer.
 class BaseInformation extends StatefulWidget {
-  void Function()? onNext;
+  final void Function()? onNext;
 
-  /// Etape precedente, s'il y en a une (aucune a l'ajout : c'est la premiere etape).
-  final void Function()? onPrevious;
+  /// Null en modification : un bien déjà créé n'a pas de brouillon.
+  final void Function()? onBrouillon;
 
-  BaseInformation({this.onNext, this.onPrevious});
+  const BaseInformation({super.key, this.onNext, this.onBrouillon});
 
   @override
   State<BaseInformation> createState() => _BaseInformationState();
 }
 
 class _BaseInformationState extends State<BaseInformation> {
+  static const int _maxDescription = 500;
+
   final _formKey = GlobalKey<FormState>();
+  final _defilement = ScrollController();
+
+  final _titreCle = GlobalKey<FormFieldState<String>>();
+  final _descriptionCle = GlobalKey<FormFieldState<String>>();
+  final _typeCle = GlobalKey<FormFieldState<TypeTransaction>>();
+  final _prixCle = GlobalKey<FormFieldState<String>>();
+  final _categorieCle = GlobalKey<FormFieldState<Category>>();
 
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   final _priceController = TextEditingController();
   final _virtualUrlController = TextEditingController();
-  late final AddModifyImmBloc _bloc;
 
-  @override
-  void dispose() {
-    if (_bloc.instantaneEtape == _instantane) _bloc.instantaneEtape = null;
-    _titleController.dispose();
-    _descController.dispose();
-    _priceController.dispose();
-    _virtualUrlController.dispose();
-    super.dispose();
-  }
+  late final AddModifyImmBloc _bloc;
 
   @override
   void initState() {
@@ -54,15 +54,27 @@ class _BaseInformationState extends State<BaseInformation> {
     // Le brouillon lit la saisie de l'etape affichee.
     _bloc = BlocProvider.of<AddModifyImmBloc>(context);
     _bloc.instantaneEtape = _instantane;
-    WidgetsBinding.instance.addPostFrameCallback((_){
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       remplirFields();
     });
+  }
+
+  @override
+  void dispose() {
+    if (_bloc.instantaneEtape == _instantane) _bloc.instantaneEtape = null;
+    _defilement.dispose();
+    _titleController.dispose();
+    _descController.dispose();
+    _priceController.dispose();
+    _virtualUrlController.dispose();
+    super.dispose();
   }
 
   /// La saisie en cours, sans validation.
   Realestate _instantane() {
     Realestate realestate = getRealEstate();
-    realestate.tour360Url = _virtualUrlController.text.isNotEmpty ? _virtualUrlController.text : null;
+    realestate.tour360Url =
+        _virtualUrlController.text.isNotEmpty ? _virtualUrlController.text : null;
     Realestate nr = realestate.copyWith(
       title: _titleController.text,
       description: _descController.text,
@@ -72,665 +84,355 @@ class _BaseInformationState extends State<BaseInformation> {
     return nr;
   }
 
+  // ── Libellés qui suivent la famille du bien ──────────────────────
+
+  /// « Prix par nuit » en courte durée, « Loyer mensuel » en longue durée,
+  /// « Prix de vente » à la vente.
+  String _libellePrix(TypeTransaction? type) {
+    switch (type?.value) {
+      case 'rent-long':
+        return 'Loyer mensuel';
+      case 'selle':
+        return 'Prix de vente';
+      case 'rent-short':
+        return 'Prix par nuit';
+      default:
+        return 'Prix';
+    }
+  }
+
+  static const Map<String, String> _libellesCourts = {
+    'rent-short': 'Courte durée',
+    'rent-long': 'Longue durée',
+    'selle': 'Vente',
+  };
+
+  /// Les trois familles, dans l'ordre de la maquette. Seules celles que le
+  /// serveur renvoie sont proposées.
+  List<ChoixSegmenteBien<TypeTransaction>> _choixTransaction(
+      List<TypeTransaction>? types) {
+    final liste = types ?? const <TypeTransaction>[];
+    final choix = <ChoixSegmenteBien<TypeTransaction>>[];
+    for (final valeur in _libellesCourts.keys) {
+      for (final t in liste) {
+        if (t.value == valeur) {
+          choix.add(ChoixSegmenteBien(t, _libellesCourts[valeur]!));
+        }
+      }
+    }
+    // Une famille inconnue garde le nom donné par le serveur.
+    for (final t in liste) {
+      if (!_libellesCourts.containsKey(t.value)) {
+        choix.add(ChoixSegmenteBien(t, t.name ?? '—'));
+      }
+    }
+    return choix;
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AddModifyImmBloc, AddModifyImmState>(
       builder: (context, state) {
+        final bien = state.realestate;
+        final type = bien?.typeTransaction;
+        final ecrits = _descController.text.characters.length;
 
-        String? log=BlocProvider.of<AddModifyImmBloc>(context).state.realestate?.toString();
-        print("============$log");
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header section
-               /* Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 48,
-                        color: AppColors.primaryColor,
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        "Informations de base du bien",
-                        style: TextStyle(
-                          color: AppColors.primaryColor,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),*/
-
-                SizedBox(height: 24),
-
-                /// Titre
-                MyFormField(
-                  label: "Titre *",
-                  hint: "Entrez le titre",
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  controller: _titleController,
-                  validator: Validator().required().min(3).make(),
-                ),
-                const SizedBox(height: 16),
-
-                /// Description
-                MyFormField(
-                  label: "Description *",
-                  hint: "Entrez la description",
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  controller: _descController,
-                  isLarge: true,
-                  validator: Validator().required().min(10).make(),
-                ),
-                const SizedBox(height: 16),
-
-                /// Prix
-                MyFormField(
-                  label: state.realestate?.typeTransaction?.value == 'selle' ? "Prix de vente (MAD) *" : "Prix *",
-                  hint: state.realestate?.typeTransaction?.value == 'selle' ? "Prix de vente demandé" : "Entrez le prix",
-                  controller: _priceController,
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  inputType: TextInputType.number,
-                  validator: Validator()
-                      .required()
-                      .number()
-                      .greaterThan(0)
-                      .make(),
-                ),
-                const SizedBox(height: 16),
-
-                /// Lien virtuel
-                MyFormField(
-                  label: "Lien virtuel (360°)",
-                  hint: "https://...",
-                  controller: _virtualUrlController,
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  inputType: TextInputType.url,
-                ),
-                const SizedBox(height: 16),
-
-                /// Catégorie
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Catégorie *",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+        return Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              Expanded(
+                child: CorpsEtapeBien(
+                  defilement: _defilement,
+                  enfants: [
+                    ChampTexteBien(
+                      cle: _titreCle,
+                      libelle: 'Titre du bien',
+                      indication: 'Ex : Appartement vue mer, Founty',
+                      controller: _titleController,
+                      casse: TextCapitalization.sentences,
+                      validateur: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) return 'Donnez un titre au bien.';
+                        if (t.length < 3) return 'Au moins 3 caractères.';
+                        return null;
+                      },
                     ),
-                    SizedBox(height: 8),
-                    DropdownButtonFormField<Category>(
-                      value: state.realestate?.category,
-                      items: state.categories?.map((c) {
-                        return DropdownMenuItem(value: c, child: Text(c.name!));
-                      }).toList(),
-                      decoration: _inputDecoration(hint: "Sélectionnez une catégorie"),
-                      onChanged: onCategoryChanged,
-                      validator: (val) =>
-                      val == null ? "Veuillez choisir une catégorie" : null,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                /// État
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "État *",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    ChampTexteBien(
+                      cle: _descriptionCle,
+                      libelle: 'Description',
+                      indication: 'Ce qu\'un client doit savoir du bien…',
+                      controller: _descController,
+                      lignes: 5,
+                      maxCaracteres: _maxDescription,
+                      casse: TextCapitalization.sentences,
+                      onChange: (_) => setState(() {}),
+                      mention: '$ecrits / $_maxDescription caractères',
+                      validateur: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) return 'Décrivez le bien.';
+                        if (t.length < 10) return 'Au moins 10 caractères.';
+                        return null;
+                      },
                     ),
-                    SizedBox(height: 8),
-                    DropdownButtonFormField<Etat>(
-                      value: state.realestate?.etat,
-                      items: state.etats?.map((e) {
-                        return DropdownMenuItem(value: e, child: Text(e.name!));
-                      }).toList(),
-                      decoration: _inputDecoration(hint: "Sélectionnez un état"),
-                      onChanged: onEtatChanged,
-                      validator: (val) =>
-                      val == null ? "Veuillez choisir un état" : null,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                /// Type transaction
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Type de transaction *",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    ChampSegmenteBien<TypeTransaction>(
+                      cle: _typeCle,
+                      libelle: 'Type de transaction',
+                      choix: _choixTransaction(state.typeTransaction),
+                      valeur: type,
+                      onChange: onTypeTransactionChanged,
+                      validateur: (_) =>
+                          type == null ? 'Choisissez le type de transaction.' : null,
                     ),
-                    SizedBox(height: 8),
-                    DropdownButtonFormField<TypeTransaction>(
-                      value: state.realestate?.typeTransaction,
-                      items: state.typeTransaction?.map((t) {
-                        return DropdownMenuItem(value: t, child: Text(t.name!));
-                      }).toList(),
-                      decoration: _inputDecoration(hint: "Sélectionnez un type de transaction"),
-                      onChanged: onTypeTransactionChanged,
-                      validator: (val) =>
-                      val == null ? "Veuillez choisir un type" : null,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                /// Propriétaire
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Propriétaire",
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    SizedBox(height: 8),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
-                          child: DropdownButtonFormField<Owner>(
-                            value: state.realestate?.owner,
-                            items: state.owners?.map((o) {
-                              return DropdownMenuItem(value: o, child: Text(o.name!));
-                            }).toList(),
-                            decoration: _inputDecoration(hint: "Sélectionnez un propriétaire"),
-                            onChanged: onOwnerChanged,
-                            /* validator: (val) =>
-                            val == null ? "Veuillez choisir un propriétaire" : null,*/
+                          child: ChampTexteBien(
+                            cle: _prixCle,
+                            libelle: _libellePrix(type),
+                            indication: '0',
+                            controller: _priceController,
+                            clavier: const TextInputType.numberWithOptions(decimal: true),
+                            formats: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                            unite: 'MAD',
+                            validateur: (v) {
+                              final t = (v ?? '').trim().replaceAll(',', '.');
+                              if (t.isEmpty) return 'Indiquez un montant.';
+                              final montant = double.tryParse(t);
+                              if (montant == null) return 'Montant incorrect.';
+                              if (montant <= 0) return 'Le montant doit être supérieur à 0.';
+                              return null;
+                            },
                           ),
                         ),
-                        const SizedBox(width: 10,),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryColor,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: IconButton(
-                            onPressed: onAddOwner,
-                            icon: Icon(Icons.add, color: Colors.white),
-                            tooltip: "Ajouter un propriétaire",
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ChampListeBien<Category>(
+                            cle: _categorieCle,
+                            libelle: 'Catégorie',
+                            indication: 'Choisir',
+                            valeur: parmiListeBien(state.categories, bien?.category),
+                            choix: (state.categories ?? [])
+                                .map((c) => DropdownMenuItem(
+                                      value: c,
+                                      child: Text(c.name ?? '',
+                                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ))
+                                .toList(),
+                            onChange: onCategoryChanged,
+                            validateur: (v) => v == null ? 'Choisissez une catégorie.' : null,
                           ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+
+                    _proprietaire(state),
+                    const SizedBox(height: 16),
+
+                    ChampTexteBien(
+                      libelle: 'Lien de la visite 360° (facultatif)',
+                      indication: 'https://…',
+                      controller: _virtualUrlController,
+                      clavier: TextInputType.url,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 32),
+              ),
+              BarreActionsBien(
+                libelleSuivant: suivantsEtapesBien[0],
+                onSuivant: onSuivantClick,
+                onBrouillon: widget.onBrouillon,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-                // Action button
-                Row(
-                  children: [
-                    if (widget.onPrevious != null) ...[
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            _instantane();
-                            widget.onPrevious?.call();
-                          },
-                          style: OutlinedButton.styleFrom(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          child: Text("Précédent", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+  // ── Le propriétaire ──────────────────────────────────────────────
+
+  /// La carte du propriétaire retenu, ou l'invitation à le choisir, puis le
+  /// lien vers la création d'une nouvelle fiche.
+  Widget _proprietaire(AddModifyImmState state) {
+    final owner = state.realestate?.owner;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const LibelleChampBien('Propriétaire'),
+        CarteAccueil(
+          padding: const EdgeInsets.fromLTRB(12, 11, 6, 11),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: fondPrincipaleBien,
+                  shape: BoxShape.circle,
+                ),
+                child: owner == null
+                    ? const Icon(Icons.person_outline, size: 20, color: principaleBien)
+                    : Text(
+                        initialesBien(owner.name),
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: principaleBien,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                    ],
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                    onPressed: onSuivantClick,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryColor,
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: Text(
-                      "Suivant",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  InputDecoration _inputDecoration({String? hint, String? label}) =>
-      InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: Colors.black54),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.black),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.black),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.black, width: 2),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.red),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.red, width: 2),
-        ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-      );
-
-  void onSuivantClick() {
-    if(_formKey.currentState?.validate()??false){
-      Realestate realestate=getRealEstate();
-      realestate.tour360Url= _virtualUrlController.text.isNotEmpty?_virtualUrlController.text:null;
-      Realestate nr=realestate.copyWith(
-        title: _titleController.text,
-        description: _descController.text,
-        price: double.parse(_priceController.text),
-
-      );
-      updateRealestate(nr);
-      widget.onNext?.call();
-    }
-  }
-
-  void remplirFields() {
-    Realestate? realestate=BlocProvider.of<AddModifyImmBloc>(context).state.realestate;
-    if(realestate!=null){
-      _titleController.text=realestate.title??"";
-      _descController.text=realestate.description??"";
-      _priceController.text=realestate.price?.toString()??"";
-      _virtualUrlController.text=realestate.tour360Url??"";
-    }
-  }
-
-  void onCategoryChanged(Category? value) {
-    print("changed");
-    Realestate realestate=getRealEstate();
-    Realestate nr=realestate.copyWith(category: value);
-    updateRealestate(nr);
-  }
-
-  void onEtatChanged(Etat? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr= realestate.copyWith(etat: value);
-    updateRealestate(nr);
-  }
-
-  void onTypeTransactionChanged(TypeTransaction? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr= realestate.copyWith(typeTransaction: value);
-    updateRealestate(nr);
-  }
-
-  void onOwnerChanged(Owner? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr=realestate.copyWith(owner: value);
-    updateRealestate(nr);
-  }
-
-  void updateRealestate(Realestate realestate){
-    BlocProvider.of<AddModifyImmBloc>(context).add(UpdateRealestate(realestate));
-  }
-
-  Realestate getRealEstate(){
-    Realestate? realestate=BlocProvider.of<AddModifyImmBloc>(context).state.realestate ?? Realestate();
-    return realestate;
-  }
-
-  void onAddOwner() async{
-    var result=await GoRouter.of(context).push(Routes.addOwner);
-    if(result is Owner){
-      BlocProvider.of<AddModifyImmBloc>(context).add(AddOwner(result));
-    }
-  }
-}
-
-/*
-import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:immobilier/components/custom_button.dart';
-import 'package:immobilier/features/immobilier/add_modify_immobilier/bloc/add_modify_imm_bloc.dart';
-import 'package:immobilier/models/realestate.dart';
-import 'package:immobilier/routes.dart';
-
-import '../../../../../components/form_field.dart';
-import '../../../../../core/validator/validator.dart';
-import '../../../../../models/category.dart';
-import '../../../../../models/etat.dart';
-import '../../../../../models/owner.dart';
-import '../../../../../models/type_transaction.dart';
-
-class BaseInformation extends StatefulWidget {
-  void Function()? onNext;
-
-  BaseInformation({this.onNext});
-
-  @override
-  State<BaseInformation> createState() => _BaseInformationState();
-}
-
-class _BaseInformationState extends State<BaseInformation> {
-  final _formKey = GlobalKey<FormState>();
-
-  final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  final _priceController = TextEditingController();
-  final _virtualUrlController = TextEditingController();
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descController.dispose();
-    _priceController.dispose();
-    _virtualUrlController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_){
-      remplirFields();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<AddModifyImmBloc, AddModifyImmState>(
-      builder: (context, state) {
-
-        String? log=BlocProvider.of<AddModifyImmBloc>(context).state.realestate?.toString();
-        print("============$log");
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                /// Titre
-                MyFormField(
-                  label: "Titre",
-                  hint: "Entrez le titre",
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  controller: _titleController,
-                  validator: Validator().required().min(3).make(),
-                ),
-                const SizedBox(height: 10),
-
-                /// Description
-                MyFormField(
-                  label: "Description",
-                  hint: "Entrez la description",
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  controller: _descController,
-                  isLarge: true,
-                  validator: Validator().required().min(10).make(),
-                ),
-                const SizedBox(height: 10),
-
-                /// Prix
-                MyFormField(
-                  label: "Prix",
-                  hint: "Entrez le prix",
-                  controller: _priceController,
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  inputType: TextInputType.number,
-                  validator: Validator()
-                      .required()
-                      .number()
-                      .greaterThan(0)
-                      .make(),
-                ),
-                const SizedBox(height: 10),
-
-                /// Lien virtuel
-                MyFormField(
-                  label: "Lien virtuel (360°)",
-                  hint: "https://...",
-                  controller: _virtualUrlController,
-                  labelColor: Colors.black,
-                  borderColor: Colors.black,
-                  hintColor: Colors.black54,
-                  activeBorderColor: Colors.black,
-                  inputType: TextInputType.url,
-                  //validator: Validator().make(),
-                ),
-                const SizedBox(height: 18),
-
-                /// Catégorie
-                DropdownButtonFormField<Category>(
-                  value: state.realestate?.category,
-                  items: state.categories?.map((c) {
-                    return DropdownMenuItem(value: c, child: Text(c.name!));
-                  }).toList(),
-                  decoration: inputDecoration(hint: "Sélectionnez une catégorie"),
-                  onChanged: onCategoryChanged,
-                  validator: (val) =>
-                  val == null ? "Veuillez choisir une catégorie" : null,
-                ),
-                const SizedBox(height: 10),
-
-                /// État
-                DropdownButtonFormField<Etat>(
-                  value: state.realestate?.etat,
-                  items: state.etats?.map((e) {
-                    return DropdownMenuItem(value: e, child: Text(e.name!));
-                  }).toList(),
-                  decoration: inputDecoration(hint: "Sélectionnez un état"),
-                  onChanged: onEtatChanged,
-                  validator: (val) =>
-                  val == null ? "Veuillez choisir un état" : null,
-                ),
-                const SizedBox(height: 10),
-
-                /// Type transaction
-                DropdownButtonFormField<TypeTransaction>(
-                  value: state.realestate?.typeTransaction,
-                  items: state.typeTransaction?.map((t) {
-                    return DropdownMenuItem(value: t, child: Text(t.name!));
-                  }).toList(),
-                  decoration:
-                  inputDecoration(hint: "Sélectionnez un type de transaction"),
-                  onChanged: onTypeTransactionChanged,
-                  validator: (val) =>
-                  val == null ? "Veuillez choisir un type" : null,
-                ),
-                const SizedBox(height: 10),
-                /// Propriétaire
-                Row(
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: DropdownButtonFormField<Owner>(
-                        value: state.realestate?.owner,
-                        items: state.owners?.map((o) {
-                          return DropdownMenuItem(value: o, child: Text(o.name!));
-                        }).toList(),
-                        decoration:
-                        inputDecoration(hint: "Sélectionnez un propriétaire"),
-                        onChanged: onOwnerChanged,
-                       /* validator: (val) =>
-                        val == null ? "Veuillez choisir un propriétaire" : null,*/
+                    Text(
+                      owner?.name?.trim().isNotEmpty == true
+                          ? owner!.name!
+                          : 'Aucun propriétaire',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: texteAccueil,
                       ),
                     ),
-                    const SizedBox(width: 10,),
-                    IconButton(onPressed: onAddOwner, icon: Icon(Icons.add,color: Colors.black,))
+                    const SizedBox(height: 2),
+                    Text(
+                      owner == null
+                          ? 'Facultatif — vous pourrez l\'ajouter plus tard.'
+                          : (telephoneMasqueBien(owner.tel).isEmpty
+                              ? 'Téléphone non renseigné'
+                              : telephoneMasqueBien(owner.tel)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: texteDouxAccueil,
+                        fontFeatures: chiffresTabulaires,
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                MyCustomButton(
-                    name: "Suivant",
-                  onClick: onSuivantClick,
-                )
-              ],
+              ),
+              TextButton(
+                onPressed: onChangerProprietaire,
+                style: TextButton.styleFrom(
+                  foregroundColor: principaleBien,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: Text(
+                  owner == null ? 'Choisir' : 'Changer',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: onAddOwner,
+            icon: const Icon(Icons.add, size: 17),
+            label: const Text(
+              'Nouveau propriétaire',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+            style: TextButton.styleFrom(
+              foregroundColor: principaleBien,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
             ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
-  InputDecoration inputDecoration({String? hint, String? label}) =>
-      InputDecoration(
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        hintText: hint,
-        hintStyle: GoogleFonts.poppins(color: Colors.black54, fontSize: 15),
-        filled: true,
-        fillColor: Colors.grey.shade200, // light background color
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none, // no border
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-      );
+  /// Ouvre la liste des propriétaires déjà enregistrés. Rien n'est changé
+  /// si l'agent referme la feuille sans choisir.
+  Future<void> onChangerProprietaire() async {
+    final owner = await choisirProprietaire(context);
+    if (owner == null || !mounted) return;
+    BlocProvider.of<AddModifyImmBloc>(context).add(AddOwner(owner));
+  }
+
+  void onAddOwner() async {
+    var result = await GoRouter.of(context).push(Routes.addOwner);
+    if (result is Owner && mounted) {
+      BlocProvider.of<AddModifyImmBloc>(context).add(AddOwner(result));
+    }
+  }
+
+  // ── Passage à l'étape suivante ───────────────────────────────────
 
   void onSuivantClick() {
-   if(_formKey.currentState?.validate()??false){
-     Realestate realestate=getRealEstate();
-     realestate.tour360Url= _virtualUrlController.text.isNotEmpty?_virtualUrlController.text:null;
-     Realestate nr=realestate.copyWith(
-       title: _titleController.text,
-       description: _descController.text,
-       price: double.parse(_priceController.text),
-
-     );
-     updateRealestate(nr);
-     widget.onNext?.call();
-   }
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      allerAuPremierFautifBien([
+        _titreCle,
+        _descriptionCle,
+        _typeCle,
+        _prixCle,
+        _categorieCle,
+      ]);
+      return;
+    }
+    Realestate realestate = getRealEstate();
+    realestate.tour360Url =
+        _virtualUrlController.text.isNotEmpty ? _virtualUrlController.text : null;
+    Realestate nr = realestate.copyWith(
+      title: _titleController.text,
+      description: _descController.text,
+      price: double.tryParse(_priceController.text.trim().replaceAll(',', '.')),
+    );
+    updateRealestate(nr);
+    widget.onNext?.call();
   }
 
   void remplirFields() {
-    Realestate? realestate=BlocProvider.of<AddModifyImmBloc>(context).state.realestate;
-    if(realestate!=null){
-      _titleController.text=realestate.title??"";
-      _descController.text=realestate.description??"";
-      _priceController.text=realestate.price?.toString()??"";
-      _virtualUrlController.text=realestate.tour360Url??"";
+    Realestate? realestate =
+        BlocProvider.of<AddModifyImmBloc>(context).state.realestate;
+    if (realestate != null) {
+      _titleController.text = realestate.title ?? "";
+      _descController.text = realestate.description ?? "";
+      _priceController.text = realestate.price?.toString() ?? "";
+      _virtualUrlController.text = realestate.tour360Url ?? "";
+      setState(() {});
     }
-   }
-
-
-  void onCategoryChanged(Category? value) {
-      print("changed");
-      Realestate realestate=getRealEstate();
-      Realestate nr=realestate.copyWith(category: value);
-      updateRealestate(nr);
   }
 
-  void onEtatChanged(Etat? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr= realestate.copyWith(etat: value);
+  void onCategoryChanged(Category? value) {
+    Realestate realestate = getRealEstate();
+    Realestate nr = realestate.copyWith(category: value);
     updateRealestate(nr);
   }
 
   void onTypeTransactionChanged(TypeTransaction? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr= realestate.copyWith(typeTransaction: value);
+    Realestate realestate = getRealEstate();
+    Realestate nr = realestate.copyWith(typeTransaction: value);
     updateRealestate(nr);
   }
 
-  void onOwnerChanged(Owner? value) {
-    Realestate realestate=getRealEstate();
-    Realestate nr=realestate.copyWith(owner: value);
-    updateRealestate(nr);
-  }
-
-  void updateRealestate(Realestate realestate){
+  void updateRealestate(Realestate realestate) {
     BlocProvider.of<AddModifyImmBloc>(context).add(UpdateRealestate(realestate));
   }
-  Realestate getRealEstate(){
-    Realestate? realestate=BlocProvider.of<AddModifyImmBloc>(context).state.realestate ?? Realestate();
+
+  Realestate getRealEstate() {
+    Realestate? realestate =
+        BlocProvider.of<AddModifyImmBloc>(context).state.realestate ?? Realestate();
     return realestate;
   }
-
-
-  void onAddOwner() async{
-    var result=await GoRouter.of(context).push(Routes.addOwner);
-    if(result is Owner){
-      BlocProvider.of<AddModifyImmBloc>(context).add(AddOwner(result));
-    }
-  }
 }
-*/

@@ -18,10 +18,10 @@ String cheminAjoutBien({String? type, int? dossier, String? brouillon}) {
 }
 
 const Map<String, String> _libellesEtapes = {
-  // Anciens brouillons de vente : la reprise se fait aux informations de base.
-  'mandat': 'Informations de base',
-  'signature': 'Informations de base',
-  'base': 'Informations de base',
+  // Anciens brouillons de vente : la reprise se fait a la premiere etape.
+  'mandat': 'Informations générales',
+  'signature': 'Informations générales',
+  'base': 'Informations générales',
   'location': 'Localisation',
   'details': 'Détails',
   'features': 'Équipements',

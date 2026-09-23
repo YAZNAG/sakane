@@ -7,7 +7,9 @@ import 'package:immobilier/core/utils/show_error_dialogue.dart';
 import 'package:immobilier/core/utils/show_toast.dart';
 import 'package:immobilier/features/baux/ui/components/baux_commun.dart';
 import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/brouillons.dart';
+import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/assistant_bien_commun.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/base_information.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/liste_brouillons.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/location.dart';
@@ -24,15 +26,12 @@ import '../../../../core/constants/app_strings.dart';
 import '../../../../core/constants/enums/app_status.dart';
 import '../bloc/add_modify_imm_bloc.dart';
 
-/// Une phase de l'indicateur de progression, et les etapes qu'elle couvre.
-class _Phase {
-  final String libelle;
-  final IconData icone;
-  final List<String> etapes;
-
-  const _Phase(this.libelle, this.icone, this.etapes);
-}
-
+/// L'assistant « Ajouter un bien », en cinq étapes.
+///
+/// L'écran tient le cadre — la croix ou la flèche, le titre, « Étape n sur
+/// 5 », la barre des cinq segments — et chaque étape apporte ses champs et
+/// sa barre d'actions. La saisie vit dans le bloc : passer d'une étape à
+/// l'autre ne perd rien, et le brouillon la relit à tout moment.
 class AddModifyImmobilierPage extends StatefulWidget {
   final int? id;
 
@@ -64,8 +63,6 @@ class AddModifyImmobilierPage extends StatefulWidget {
 }
 
 class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
-  static const List<String> _etapesBien = ['base', 'location', 'details', 'features', 'images'];
-
   late String _etape;
 
   /// Id du brouillon en cours (repris, ou enregistre pendant la saisie).
@@ -86,23 +83,20 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
     // Les anciens brouillons de vente pouvaient s'arreter au mandat :
     // l'ajout d'un bien n'a plus d'etape de mandat.
     final etape = b?.etape;
-    _etape = etape != null && _etapesBien.contains(etape) ? etape : 'base';
+    _etape = etape != null && clesEtapesBien.contains(etape) ? etape : clesEtapesBien.first;
   }
 
-  bool _estVente(AddModifyImmState s) => !isUpdate && s.realestate?.typeTransaction?.value == 'selle';
-
-  List<String> _etapes(AddModifyImmState s) => _etapesBien;
-
   /// L'etape affichee, ramenee a une etape du parcours.
-  String _etapeCourante(AddModifyImmState s) => _etapesBien.contains(_etape) ? _etape : 'base';
+  String _etapeCourante(AddModifyImmState s) =>
+      clesEtapesBien.contains(_etape) ? _etape : clesEtapesBien.first;
 
-  static const List<_Phase> _phases = [
-    _Phase('Infos', Icons.info_outline, ['base']),
-    _Phase('Localisation', Icons.location_on_outlined, ['location']),
-    _Phase('Détails', Icons.home_work_outlined, ['details']),
-    _Phase('Équipements', Icons.featured_play_list_outlined, ['features']),
-    _Phase('Photos', Icons.photo_library_outlined, ['images']),
-  ];
+  /// Le rang de l'etape affichee, de 0 a 4.
+  int get _rang {
+    final i = clesEtapesBien.indexOf(_etape);
+    return i < 0 ? 0 : i;
+  }
+
+  bool get _premiereEtape => _rang == 0;
 
   @override
   Widget build(BuildContext context) {
@@ -110,49 +104,63 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
       listener: listener,
       builder: (context, state) {
         final pret = state.fetchData == AppStatus.success;
+        // Aux etapes suivantes, le retour du telephone revient d'une etape
+        // au lieu de quitter la saisie.
+        final peutSortir =
+            _premiereEtape && (isUpdate || _quitter || !pret || !_aDesDonnees(state));
         return PopScope(
-          canPop: isUpdate || _quitter || !pret || !_aDesDonnees(state),
+          canPop: peutSortir,
           onPopInvokedWithResult: (aQuitte, _) {
-            if (!aQuitte) _demanderAvantDeQuitter();
+            if (aQuitte) return;
+            if (!_premiereEtape) {
+              previous();
+            } else {
+              _demanderAvantDeQuitter();
+            }
           },
           child: Scaffold(
-            backgroundColor: Colors.grey.shade50,
+            backgroundColor: fondAccueil,
             appBar: AppBar(
-              title: Text(
-                isUpdate ? "Modifier un bien" : (_estVente(state) ? "Ajouter un bien à vendre" : "Ajouter un bien"),
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              centerTitle: true,
+              backgroundColor: fondAccueil,
+              surfaceTintColor: fondAccueil,
               elevation: 0,
-              foregroundColor: Colors.white,
-              backgroundColor: _estVente(state) ? CouleursVente.teinte : AppColors.primaryColor,
+              scrolledUnderElevation: 0,
+              foregroundColor: texteAccueil,
+              titleSpacing: 0,
+              centerTitle: false,
+              leading: IconButton(
+                tooltip: _premiereEtape ? 'Quitter' : 'Étape précédente',
+                onPressed: _premiereEtape ? _sortir : previous,
+                icon: Icon(
+                  _premiereEtape ? Icons.close_rounded : Icons.arrow_back_rounded,
+                  color: texteAccueil,
+                ),
+              ),
+              title: Text(
+                isUpdate ? 'Modifier le bien' : 'Ajouter un bien',
+                style: const TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w800,
+                  color: texteAccueil,
+                ),
+              ),
               actions: [
-                if (!isUpdate && pret) ...[
-                  IconButton(
-                    tooltip: 'Enregistrer comme brouillon',
-                    onPressed: _enregistrerBrouillon,
-                    icon: const Icon(Icons.save_outlined, color: Colors.white),
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Center(
+                    child: Text(
+                      'Étape ${_rang + 1} sur ${clesEtapesBien.length}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: texteDouxAccueil,
+                        fontFeatures: chiffresTabulaires,
+                      ),
+                    ),
                   ),
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
-                    color: Colors.white,
-                    onSelected: (a) {
-                      if (a == 'brouillon') _enregistrerBrouillon();
-                      if (a == 'mes') _mesBrouillons();
-                      if (a == 'supprimer') _supprimerBrouillonEnCours();
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'brouillon', child: Text('Enregistrer comme brouillon')),
-                      const PopupMenuItem(value: 'mes', child: Text('Mes brouillons')),
-                      if (_brouillonId != null)
-                        const PopupMenuItem(
-                          value: 'supprimer',
-                          child: Text('Supprimer le brouillon', style: TextStyle(color: CouleursBail.retard)),
-                        ),
-                    ],
-                  ),
-                ],
+                ),
               ],
+              bottom: BarreEtapesBien(etape: _rang),
             ),
             body: _buildContent(state),
           ),
@@ -167,7 +175,7 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
     return (r?.title ?? '').isNotEmpty ||
         (r?.description ?? '').isNotEmpty ||
         (r?.files ?? const []).isNotEmpty ||
-        _etape != _etapes(s).first;
+        !_premiereEtape;
   }
 
   void listener(BuildContext context, AddModifyImmState state) {
@@ -295,6 +303,17 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
     }
   }
 
+  /// La croix de la première étape : rien à perdre, on sort ; sinon la
+  /// question du brouillon est posée.
+  void _sortir() {
+    final pret = _bloc.state.fetchData == AppStatus.success;
+    if (isUpdate || _quitter || !pret || !_aDesDonnees(_bloc.state)) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _demanderAvantDeQuitter();
+  }
+
   /// Retour arriere avec une saisie en cours : brouillon, quitter, ou rester.
   Future<void> _demanderAvantDeQuitter() async {
     final choix = await showDialog<String>(
@@ -347,13 +366,10 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
         actionCLick: fetchData,
       );
     } else if (state.fetchData == AppStatus.success) {
-      final enregistrement = state.addModifyStatus == AppStatus.loading;
       return Column(
         children: [
-          _entete(state, enregistrement),
           if (_brouillonId != null && !isUpdate) _bandeauBrouillon(),
-          if (_brouillonId == null && !isUpdate && _etapeCourante(state) == _etapes(state).first)
-            _bandeauMesBrouillons(),
+          if (_brouillonId == null && !isUpdate && _premiereEtape) _bandeauMesBrouillons(),
           Expanded(child: _buildForm(state)),
         ],
       );
@@ -361,18 +377,28 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
     return const SizedBox();
   }
 
+  /// Un brouillon est ouvert : le rappeler, et permettre de l'effacer.
   Widget _bandeauBrouillon() {
     return Container(
       width: double.infinity,
       color: const Color(0xFFFFF7E0),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: const Row(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(
         children: [
-          Icon(Icons.edit_note, size: 18, color: Color(0xFF8A6100)),
-          SizedBox(width: 8),
-          Expanded(
+          const Icon(Icons.edit_note, size: 18, color: Color(0xFF8A6100)),
+          const SizedBox(width: 8),
+          const Expanded(
             child: Text('Brouillon — gardé sur ce téléphone',
                 style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF8A6100))),
+          ),
+          TextButton(
+            onPressed: _supprimerBrouillonEnCours,
+            style: TextButton.styleFrom(
+              foregroundColor: CouleursBail.retard,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text('Supprimer', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -411,139 +437,20 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
     );
   }
 
-  Widget _entete(AddModifyImmState state, bool enregistrement) {
-    final etape = _etapeCourante(state);
-    final phases = _phases;
-    final vente = _estVente(state);
-    final teinte = vente ? CouleursVente.teinte : AppColors.primaryColor;
-    var active = phases.indexWhere((p) => p.etapes.contains(etape));
-    if (enregistrement && phases.last.etapes.isEmpty) active = phases.length - 1;
-    final phase = phases[active < 0 ? 0 : active];
-    final sousEtapes = phase.etapes.length;
-    final rang = phase.etapes.indexOf(etape) + 1;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: List.generate(phases.length, (i) {
-              final fait = i < active;
-              final actif = i == active;
-              return Expanded(
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            height: 2,
-                            color: i == 0 ? Colors.transparent : (i <= active ? Colors.green.shade600 : Colors.grey.shade300),
-                          ),
-                        ),
-                        Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: fait ? Colors.green.shade600 : (actif ? teinte : Colors.grey.shade300),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            fait ? Icons.check : phases[i].icone,
-                            size: 16,
-                            color: fait || actif ? Colors.white : Colors.grey.shade600,
-                          ),
-                        ),
-                        Expanded(
-                          child: Container(
-                            height: 2,
-                            color: i == phases.length - 1
-                                ? Colors.transparent
-                                : (i < active ? Colors.green.shade600 : Colors.grey.shade300),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      phases[i].libelle,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        height: 1.15,
-                        fontWeight: actif ? FontWeight.w800 : FontWeight.w500,
-                        color: actif ? teinte : Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: teinte.withValues(alpha: .1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  "Étape ${_etapes(state).indexOf(etape) + 1}/${_etapes(state).length}",
-                  style: TextStyle(color: teinte, fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  sousEtapes > 1 ? "${_titre(etape)} ($rang/$sousEtapes)" : _titre(etape),
-                  style: const TextStyle(color: Colors.black87, fontSize: 16.5, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildForm(AddModifyImmState state) {
+    // Le lien « Enregistrer comme brouillon » n'a de sens qu'a l'ajout.
+    final brouillon = isUpdate ? null : _enregistrerBrouillon;
     switch (_etapeCourante(state)) {
       case 'location':
-        return PropertyLocation(onNext: next, onPrevious: previous);
+        return PropertyLocation(onNext: next, onPrevious: previous, onBrouillon: brouillon);
       case 'details':
-        return PropertyDetails(onPrevious: previous, onNext: next);
+        return PropertyDetails(onPrevious: previous, onNext: next, onBrouillon: brouillon);
       case 'features':
-        return PropertyFeatures(onPrevious: previous, onNext: next);
+        return PropertyFeatures(onPrevious: previous, onNext: next, onBrouillon: brouillon);
       case 'images':
-        return PropertyImages(onPrevious: previous, onFinish: onFinish);
+        return PropertyImages(onPrevious: previous, onFinish: onFinish, onBrouillon: brouillon);
       default:
-        return BaseInformation(onNext: next);
-    }
-  }
-
-  String _titre(String etape) {
-    switch (etape) {
-      case 'base':
-        return "Informations de base";
-      case 'location':
-        return "Localisation";
-      case 'details':
-        return "Détails de la propriété";
-      case 'features':
-        return "Équipements et services";
-      default:
-        return "Photos de la propriété";
+        return BaseInformation(onNext: next, onBrouillon: brouillon);
     }
   }
 
@@ -552,16 +459,19 @@ class _AddModifyImmobilierPageState extends State<AddModifyImmobilierPage> {
   }
 
   void next() {
-    final etapes = _etapes(_bloc.state);
-    final i = etapes.indexOf(_etapeCourante(_bloc.state));
-    if (i >= 0 && i < etapes.length - 1) setState(() => _etape = etapes[i + 1]);
+    final i = clesEtapesBien.indexOf(_etapeCourante(_bloc.state));
+    if (i >= 0 && i < clesEtapesBien.length - 1) {
+      setState(() => _etape = clesEtapesBien[i + 1]);
+    }
   }
 
+  /// Retour d'une etape. La saisie de l'etape quittee est gardee : chaque
+  /// etape sait rendre son instantane.
   void previous() {
-    final etapes = _etapes(_bloc.state);
-    final i = etapes.indexOf(_etapeCourante(_bloc.state));
+    final i = clesEtapesBien.indexOf(_etapeCourante(_bloc.state));
     if (i <= 0) return;
-    setState(() => _etape = etapes[i - 1]);
+    _bloc.instantaneEtape?.call();
+    setState(() => _etape = clesEtapesBien[i - 1]);
   }
 
   void onFinish() {
