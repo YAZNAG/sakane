@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
@@ -12,10 +13,15 @@ import 'package:immobilier/components/bandeau_synchro.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
 import 'package:immobilier/core/constants/enums/permissions.dart';
 import 'package:immobilier/core/dependencies/dependencies.dart';
-import 'package:immobilier/core/offline/synchronisation.dart';
-import 'package:immobilier/core/utils/logout.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/ui/components/departs_du_jour.dart';
+import 'package:immobilier/features/home/cubit/resume_accueil_cubit.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
+import 'package:immobilier/features/home/ui/components/carte_caisse_accueil.dart';
+import 'package:immobilier/features/home/ui/components/entete_accueil.dart';
+import 'package:immobilier/features/home/ui/components/tuiles_aujourdhui.dart';
 import 'package:immobilier/models/manager.dart';
 import 'package:immobilier/models/module_accueil.dart';
+import 'package:immobilier/models/resume_accueil.dart';
 import 'package:immobilier/features/ventes/ui/components/ventes_commun.dart' show peutVoirVentes;
 import 'package:immobilier/routes.dart';
 
@@ -72,45 +78,18 @@ const List<AppPermission> _droitsBiens = [
   AppPermission.viewTodayCheckouts,
 ];
 
+/// Le catalogue, dans l'ordre où un accueil neuf le présente : les sept
+/// premiers tiennent sur les deux rangées de la maquette, le reste
+/// s'atteint par « Tous ».
 const List<_Module> _modules = [
   _Module(
     titre: 'Immobilier',
+    court: 'Biens',
     icone: FontAwesomeIcons.building,
     fond: Color(0xFFFFF1E0),
     teinte: Color(0xFFD97E1A),
     route: Routes.gestionImmobilier,
     auMoinsUn: _droitsBiens,
-  ),
-  _Module(
-    titre: 'Plateforme',
-    icone: FontAwesomeIcons.globe,
-    fond: Color(0xFFF4E9F5),
-    teinte: Color(0xFF9B3DA0),
-    route: Routes.platform,
-    auMoinsUn: [
-      AppPermission.viewAnnounces,
-      AppPermission.activateAnnounce,
-      AppPermission.cancelAnnounce,
-      AppPermission.viewSlider,
-      AppPermission.createSlider,
-      AppPermission.activateSlider,
-    ],
-  ),
-  _Module(
-    titre: 'Utilisateurs',
-    icone: FontAwesomeIcons.users,
-    fond: Color(0xFFE7F4E9),
-    teinte: Color(0xFF2E8B45),
-    route: Routes.users,
-    permission: AppPermission.viewUsers,
-  ),
-  _Module(
-    titre: 'Statistiques',
-    icone: FontAwesomeIcons.chartLine,
-    fond: Color(0xFFE5EFF9),
-    teinte: Color(0xFF2C6FB5),
-    route: Routes.financialStats,
-    permission: AppPermission.viewStats,
   ),
   _Module(
     titre: 'Réservations',
@@ -137,12 +116,12 @@ const List<_Module> _modules = [
     permission: AppPermission.viewClients,
   ),
   _Module(
-    titre: 'Propriétaires',
-    icone: FontAwesomeIcons.userShield,
-    fond: Color(0xFFFFF7DC),
-    teinte: Color(0xFFC29411),
-    route: Routes.owners,
-    permission: AppPermission.viewOwners,
+    titre: 'Statistiques',
+    icone: FontAwesomeIcons.chartLine,
+    fond: Color(0xFFE5EFF9),
+    teinte: Color(0xFF2C6FB5),
+    route: Routes.financialStats,
+    permission: AppPermission.viewStats,
   ),
   _Module(
     titre: 'Les Charges',
@@ -159,6 +138,39 @@ const List<_Module> _modules = [
     teinte: Color(0xFFE06A1F),
     route: Routes.reclamationsList,
     permission: AppPermission.viewReclamations,
+  ),
+  // Au-delà des sept premiers : présents sur l'accueil, mais atteints
+  // par « Tous » tant que l'utilisateur ne les a pas remontés.
+  _Module(
+    titre: 'Plateforme',
+    icone: FontAwesomeIcons.globe,
+    fond: Color(0xFFF4E9F5),
+    teinte: Color(0xFF9B3DA0),
+    route: Routes.platform,
+    auMoinsUn: [
+      AppPermission.viewAnnounces,
+      AppPermission.activateAnnounce,
+      AppPermission.cancelAnnounce,
+      AppPermission.viewSlider,
+      AppPermission.createSlider,
+      AppPermission.activateSlider,
+    ],
+  ),
+  _Module(
+    titre: 'Utilisateurs',
+    icone: FontAwesomeIcons.users,
+    fond: Color(0xFFE7F4E9),
+    teinte: Color(0xFF2E8B45),
+    route: Routes.users,
+    permission: AppPermission.viewUsers,
+  ),
+  _Module(
+    titre: 'Propriétaires',
+    icone: FontAwesomeIcons.userShield,
+    fond: Color(0xFFFFF7DC),
+    teinte: Color(0xFFC29411),
+    route: Routes.owners,
+    permission: AppPermission.viewOwners,
   ),
   _Module(
     titre: 'Campagnes',
@@ -804,19 +816,32 @@ class _Disposition {
   }
 }
 
-class HomePage extends StatefulWidget {
+/// L'accueil : qui est là, ce qu'il a en caisse, ce qui l'attend
+/// aujourd'hui, puis ses modules.
+///
+/// Le résumé du serveur porte les trois premiers blocs ; les modules, eux,
+/// ne dépendent que des droits et de la disposition gardée. Un résumé
+/// qui n'arrive pas masque donc des chiffres, jamais l'accès aux écrans.
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
-  /// Teintes de l'en-tête, déduites de la couleur de la marque : le même
-  /// écran donne ainsi le bleu de Godar et le cyan d'Alwed.
-  static Color _profond(Color c) => Color.lerp(c, const Color(0xFF0B2233), .42)!;
-  static Color _clair(Color c) => Color.lerp(c, Colors.white, .16)!;
-
   @override
-  State<HomePage> createState() => _HomePageState();
+  Widget build(BuildContext context) {
+    return BlocProvider<ResumeAccueilCubit>(
+      create: (_) => ResumeAccueilCubit()..charger(),
+      child: const _Accueil(),
+    );
+  }
 }
 
-class _HomePageState extends State<HomePage> {
+class _Accueil extends StatefulWidget {
+  const _Accueil();
+
+  @override
+  State<_Accueil> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<_Accueil> {
   final Manager manager = Dependencies.get<Manager>();
   late final List<_Module> _visibles;
   late final Map<String, _Module> _parRoute;
@@ -838,12 +863,20 @@ class _HomePageState extends State<HomePage> {
   Map<String, ModuleAccueil> _reglages = {};
   int _sequenceReglages = 0;
 
+  /// La barre de la maquette : Accueil, Biens, Calendrier, Réservations,
+  /// Caisse. L'accueil est toujours en premier et ne se choisit pas ; les
+  /// quatre autres restent personnalisables.
   static const _barreParDefaut = [
+    Routes.gestionImmobilier,
+    Routes.calendrierBiens,
     Routes.reservation,
-    Routes.financialStats,
-    Routes.reclamationsList,
+    Routes.caisses,
   ];
   static const _maxBarre = 4;
+
+  /// Le nombre de modules posés sur l'accueil avant la tuile « Tous » :
+  /// sept, plus « Tous », remplissent exactement deux rangées de quatre.
+  static const _modulesAffiches = 7;
 
   /// Les éléments de la barre, dans l'ordre choisi. Un dossier défait ou
   /// un droit retiré en disparaît de lui-même.
@@ -977,20 +1010,13 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  @override
-  void dispose() {
-    _recherche.dispose();
-    super.dispose();
-  }
-
   void _sauver() => _Disposition.enregistrer(manager, _elements);
 
   // ── Recherche de modules ─────────────────────────────────────────
-
-  final TextEditingController _recherche = TextEditingController();
-  String _requete = '';
-
-  bool get _enRecherche => !_organiser && _requete.trim().isNotEmpty;
+  //
+  // La recherche a suivi les modules : elle vit désormais dans la page
+  // « Tous les modules », là où il y a de quoi chercher. L'accueil, lui,
+  // ne montre que les sept premiers et n'a rien à filtrer.
 
   static const Map<String, String> _accents = {
     'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a',
@@ -1014,8 +1040,8 @@ class _HomePageState extends State<HomePage> {
 
   /// Les modules accessibles et non masqués dont le nom choisi, le nom
   /// d'origine ou le dossier qui les range correspond à la saisie.
-  List<_Module> get _resultats {
-    final q = _normaliser(_requete);
+  List<_Module> _resultatsPour(String requete) {
+    final q = _normaliser(requete);
     if (q.isEmpty) return const [];
     final parDossier = <String>{
       for (final e in _elements)
@@ -1028,79 +1054,6 @@ class _HomePageState extends State<HomePage> {
           (m.court != null && _normaliser(m.court!).contains(q)) ||
           parDossier.contains(m.route);
     }).toList();
-  }
-
-  void _effacerRecherche() {
-    _recherche.clear();
-    setState(() => _requete = '');
-  }
-
-  Widget _champRecherche() => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: TextField(
-          controller: _recherche,
-          textInputAction: TextInputAction.search,
-          style: const TextStyle(fontSize: 14.5, color: Color(0xFF17262E)),
-          onChanged: (v) => setState(() => _requete = v),
-          decoration: InputDecoration(
-            hintText: 'Rechercher un module…',
-            hintStyle: const TextStyle(color: Color(0xFF98A6AE)),
-            prefixIcon: const Icon(Icons.search, color: Color(0xFF6B7B84)),
-            suffixIcon: _requete.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Effacer',
-                    icon: const Icon(Icons.close, color: Color(0xFF6B7B84)),
-                    onPressed: _effacerRecherche,
-                  ),
-            filled: true,
-            fillColor: Colors.white,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFE2E8EC)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFE2E8EC)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: AppColors.primaryColor, width: 1.5),
-            ),
-          ),
-        ),
-      );
-
-  Widget _resultatsRecherche() {
-    final resultats = _resultats;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 10),
-          child: Text(
-            resultats.isEmpty
-                ? 'Aucun module ne correspond à « ${_requete.trim()} ».'
-                : '${resultats.length} module${resultats.length > 1 ? 's' : ''} trouvé${resultats.length > 1 ? 's' : ''}',
-            style: const TextStyle(fontSize: 13.5, color: Color(0xFF6B7B84)),
-          ),
-        ),
-        if (resultats.isNotEmpty)
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 14,
-            childAspectRatio: 1.02,
-            children: resultats
-                .map((m) => _CarteModule(module: m, titre: _titre(m)))
-                .toList(),
-          ),
-      ],
-    );
   }
 
   // ── Modules masqués et renommés ──────────────────────────────────
@@ -1487,11 +1440,7 @@ class _HomePageState extends State<HomePage> {
 
   void _entrerOrganiser() {
     FocusScope.of(context).unfocus();
-    _recherche.clear();
-    setState(() {
-      _requete = '';
-      _organiser = true;
-    });
+    setState(() => _organiser = true);
   }
 
   void _terminer() => setState(() {
@@ -1997,7 +1946,7 @@ class _HomePageState extends State<HomePage> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(rayonAccueil),
                 border: Border.all(
                   color: survol ? AppColors.primaryColor : Colors.transparent,
                   width: 2,
@@ -2011,364 +1960,333 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF2F5F7),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Le panneau de bienvenue défile avec les modules : il ne
-            // reste plus figé en haut de l'écran.
-            _Entete(manager: manager),
-            // Le détail de la synchronisation reste accessible d'un appui.
-            const BandeauSynchro(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (!_organiser) _champRecherche(),
-                  if (_enRecherche) _resultatsRecherche() else ...[
-                  Padding(
-                    padding: const EdgeInsets.only(left: 2, bottom: 10),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Modules',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF17262E),
-                            ),
-                          ),
-                        ),
-                        if (_organiser)
-                          TextButton.icon(
-                            onPressed: _terminer,
-                            icon: const Icon(Icons.check, size: 18),
-                            label: const Text("Terminé"),
-                          )
-                        else
-                          TextButton.icon(
-                            onPressed: _entrerOrganiser,
-                            icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
-                            label: const Text("Personnaliser"),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (_organiser) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F0F6),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Text(
-                        "Maintenez une carte puis glissez-la pour la déplacer. "
-                        "Lâchée sur un dossier, elle y est rangée. Touchez plusieurs "
-                        "cartes pour les regrouper dans un nouveau dossier. "
-                        "Le bouton ⋮ d'une carte permet de la renommer ou de la masquer.",
-                        style: TextStyle(fontSize: 12.5, height: 1.35, color: Color(0xFF28414F)),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _selection.length >= 2 ? _creerDossier : null,
-                            icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-                            label: Text(_selection.length >= 2
-                                ? "Créer un dossier (${_selection.length})"
-                                : "Choisissez au moins 2 cartes"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primaryColor,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: _reinitialiser,
-                          child: const Text("Réinitialiser"),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _personnaliserBarre,
-                        icon: const Icon(Icons.space_dashboard_outlined, size: 18),
-                        label: const Text("Choisir les modules de la barre du bas"),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _ajouterModule,
-                        icon: const Icon(Icons.add_box_outlined, size: 18),
-                        label: const Text("Ajouter un module"),
-                      ),
-                    ),
-                    if (_reglages.values.any(
-                        (r) => _parRoute.containsKey(r.code) && (!r.visible || r.nom != null)))
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: _reinitialiserModules,
-                          icon: const Icon(Icons.restart_alt, size: 18),
-                          label: const Text("Réinitialiser les noms et modules masqués"),
-                        ),
-                      ),
-                    const SizedBox(height: 14),
-                  ],
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 14,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: 1.02,
-                    children: _indicesAffiches.map(_tuile).toList(),
-                  ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+  /// Tout relire : le résumé du serveur, les réglages des modules et la
+  /// disposition. Le geste est le même pour l'agent — il tire l'écran.
+  Future<void> _rafraichir() async {
+    // Le résumé d'abord : c'est lui que l'on vient chercher. Les
+    // préférences suivent, sans faire attendre.
+    final resume = context.read<ResumeAccueilCubit>().charger();
+    _Disposition._lecture = null;
+    _Disposition._lectureDe = null;
+    await resume;
+    if (!mounted) return;
+    await _chargerReglages();
+    if (!mounted) return;
+    final elements =
+        await _Disposition.charger(manager, _visibles, sansAjout: _nonAjoutes);
+    if (mounted) setState(() => _elements = elements);
+  }
+
+  /// Le prénom du serveur ; à défaut celui du compte, à défaut rien.
+  String get _prenomAffiche {
+    final duServeur =
+        context.read<ResumeAccueilCubit>().state.resume?.utilisateur.prenom ?? '';
+    if (duServeur.trim().isNotEmpty) return duServeur.trim();
+    return manager.firstName?.trim() ?? '';
+  }
+
+  // ── Aujourd'hui ──────────────────────────────────────────────────
+
+  /// Les chiffres du jour, chacun avec l'écran qui les détaille.
+  ///
+  /// Une tuile disparaît lorsque l'utilisateur n'a pas le droit d'ouvrir
+  /// l'écran visé : un chiffre sur lequel on ne peut pas appuyer
+  /// n'apprend rien et laisse croire à une panne.
+  List<TuileJour> _tuilesDuJour(AujourdhuiResume jour) {
+    void ouvrir(String route) => GoRouter.of(context).push(route);
+
+    final voitBaux = manager.can(AppPermission.viewLeases);
+    final voitReservations = manager.can(AppPermission.viewReservations);
+
+    return [
+      if (voitReservations || manager.can(AppPermission.viewReservedProperties))
+        TuileJour(
+          nombre: jour.arrivees,
+          libelle: 'Arrivées',
+          teinte: AppColors.primaryColor,
+          onTap: () => ouvrir(
+              '/immobilier-stats/reserved?type=rent-short&vue=aujourdhui'),
         ),
-      ),
-      bottomNavigationBar: _BarreBasse(
-        entrees: _entreesBarre,
-        onPersonnaliser: _personnaliserBarre,
-      ),
+      if (manager.can(AppPermission.viewTodayCheckouts))
+        TuileJour(
+          nombre: jour.departs,
+          libelle: 'Départs',
+          teinte: texteAccueil,
+          onTap: _ouvrirDepartsDuJour,
+        ),
+      if (manager.can(AppPermission.viewCleaningProperties))
+        TuileJour(
+          nombre: jour.aNettoyer,
+          libelle: 'À nettoyer',
+          teinte: orangeAccueil,
+          onTap: () => ouvrir('/immobilier-stats/cleaning?type=rent-short'),
+        ),
+      if (voitBaux || voitReservations)
+        TuileJour(
+          nombre: jour.impayes,
+          libelle: 'Impayés',
+          teinte: rougeAccueil,
+          // Les loyers impayés ont leur liste ; sans la longue durée, les
+          // réservations restent le seul endroit où les retrouver.
+          onTap: () => ouvrir(voitBaux
+              ? '${Routes.baux}?onglet=baux&filtre=impayes'
+              : Routes.reservation),
+        ),
+    ];
+  }
+
+  Future<void> _ouvrirDepartsDuJour() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const _PageDepartsDuJour()),
     );
   }
-}
 
-// ── En-tête ────────────────────────────────────────────────────────
+  // ── La caisse ────────────────────────────────────────────────────
 
-class _Entete extends StatelessWidget {
-  final Manager manager;
+  Widget _carteCaisse(CaisseResume caisse) {
+    void ouvrir(String route) => GoRouter.of(context).push(route);
 
-  const _Entete({required this.manager});
+    return CarteCaisseAccueil(
+      caisse: caisse,
+      // Sans le droit d'encaisser, le bouton n'existe pas : mieux vaut
+      // pas de bouton qu'un bouton qui se fera refuser.
+      onEncaisser: manager.can(AppPermission.cashIn)
+          ? () => ouvrir('${Routes.caisses}?action=encaisser')
+          : null,
+      onOuvrirModule: () => ouvrir(Routes.caisses),
+      onOuvrirCaisse: () => ouvrir('${Routes.caisses}?action=ouvrir'),
+    );
+  }
+
+  // ── Les modules ──────────────────────────────────────────────────
+
+  Future<void> _ouvrirTousLesModules() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => _PageTousModules(accueil: this)),
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// La grille de l'accueil : les premiers modules, puis « Tous ».
+  ///
+  /// En personnalisation, elle montre tout et passe à trois colonnes :
+  /// une carte de 78 pixels ne porte pas en plus une case à cocher et un
+  /// bouton de menu.
+  Widget _grilleModules() {
+    final indices = _indicesAffiches;
+    final poses =
+        _organiser ? indices : indices.take(_modulesAffiches).toList();
+
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: _organiser ? 3 : 4,
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      childAspectRatio: _organiser ? .95 : .84,
+      children: [
+        ...poses.map(_tuile),
+        if (!_organiser)
+          _TuileTous(
+            reste: indices.length - poses.length,
+            onTap: _ouvrirTousLesModules,
+          ),
+      ],
+    );
+  }
+
+  Widget _enteteModules() => Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Modules',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: texteAccueil,
+              ),
+            ),
+          ),
+          if (_organiser)
+            TextButton.icon(
+              onPressed: _terminer,
+              icon: const Icon(Icons.check, size: 17),
+              label: const Text('Terminé', style: TextStyle(fontSize: 13)),
+              style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primaryColor,
+                  visualDensity: VisualDensity.compact),
+            )
+          else
+            TextButton(
+              onPressed: _entrerOrganiser,
+              style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primaryColor,
+                  visualDensity: VisualDensity.compact),
+              child:
+                  const Text('Personnaliser', style: TextStyle(fontSize: 13)),
+            ),
+        ],
+      );
+
+  /// Les outils de la personnalisation : dossiers, barre du bas,
+  /// catalogue. Ils n'apparaissent qu'en mode « organiser ».
+  List<Widget> _outilsPersonnalisation() => [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F0F6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Text(
+            "Maintenez une carte puis glissez-la pour la déplacer. "
+            "Lâchée sur un dossier, elle y est rangée. Touchez plusieurs "
+            "cartes pour les regrouper dans un nouveau dossier. "
+            "Le bouton ⋮ d'une carte permet de la renommer ou de la masquer. "
+            "Les premières cartes de la liste sont celles que l'accueil affiche.",
+            style: TextStyle(
+                fontSize: 12.5, height: 1.35, color: Color(0xFF28414F)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _selection.length >= 2 ? _creerDossier : null,
+                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+                label: Text(_selection.length >= 2
+                    ? "Créer un dossier (${_selection.length})"
+                    : "Choisissez au moins 2 cartes"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: _reinitialiser,
+              child: const Text("Réinitialiser"),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _personnaliserBarre,
+            icon: const Icon(Icons.space_dashboard_outlined, size: 18),
+            label: const Text("Choisir les modules de la barre du bas"),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _ajouterModule,
+            icon: const Icon(Icons.add_box_outlined, size: 18),
+            label: const Text("Ajouter un module"),
+          ),
+        ),
+        if (_reglages.values.any((r) =>
+            _parRoute.containsKey(r.code) && (!r.visible || r.nom != null)))
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _reinitialiserModules,
+              icon: const Icon(Icons.restart_alt, size: 18),
+              label: const Text("Réinitialiser les noms et modules masqués"),
+            ),
+          ),
+        const SizedBox(height: 14),
+      ];
 
   @override
   Widget build(BuildContext context) {
-    final marque = AppColors.primaryColor;
-    final brut = manager.name?.trim() ?? '';
-    final nom = brut.isEmpty ? 'Utilisateur' : brut;
-    final initiale = brut.isEmpty ? '?' : brut[0].toUpperCase();
+    return BlocBuilder<ResumeAccueilCubit, ResumeAccueilState>(
+      builder: (context, etat) {
+        final resume = etat.resume;
+        final caisse = resume?.caisse;
+        final tuiles = resume == null
+            ? const <TuileJour>[]
+            : _tuilesDuJour(resume.aujourdhui);
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
-          22, MediaQuery.of(context).padding.top + 14, 22, 26),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            HomePage._profond(marque),
-            marque,
-            HomePage._clair(marque),
-          ],
-          stops: const [0, .6, 1],
-          begin: const Alignment(-.4, -1),
-          end: const Alignment(.7, 1),
-        ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  "Panneau d'Administration",
-                  style: TextStyle(
-                    fontSize: 18.5,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: -.2,
-                  ),
-                ),
-              ),
-              if (manager.can(AppPermission.manageOwnWhatsapp)) ...[
-                _BoutonEntete(
-                  icone: FontAwesomeIcons.whatsapp,
-                  libelle: 'Réception WhatsApp',
-                  onTap: () => GoRouter.of(context).push(Routes.receptionWhatsapp),
-                ),
-                const SizedBox(width: 8),
-              ],
-              _BoutonEntete(
-                icone: Icons.logout,
-                libelle: 'Se déconnecter',
-                onTap: demanderDeconnexion,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .12),
-              border: Border.all(color: Colors.white.withValues(alpha: .2)),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
+        return Scaffold(
+          backgroundColor: fondAccueil,
+          body: RefreshIndicator(
+            color: AppColors.primaryColor,
+            onRefresh: _rafraichir,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 28),
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .2),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    initiale,
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                EnteteAccueil(
+                  prenom: _prenomAffiche,
+                  agence: resume?.agence ?? '',
+                  date: resume?.date,
+                  onPersonnaliser: _entrerOrganiser,
+                  onWhatsapp: manager.can(AppPermission.manageOwnWhatsapp)
+                      ? () =>
+                          GoRouter.of(context).push(Routes.receptionWhatsapp)
+                      : null,
+                ),
+                // Le détail de la synchronisation reste accessible d'un appui.
+                const BandeauSynchro(),
+                // L'échec du résumé se dit, sans rien emporter avec lui :
+                // les modules restent en dessous, intacts.
+                if (etat.enErreur)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                    child: CarteErreurResume(
+                      message: etat.erreur,
+                      onReessayer: () =>
+                          context.read<ResumeAccueilCubit>().charger(),
                     ),
                   ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
+                if (etat.premierChargement)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: SqueletteCarteCaisse(),
+                  )
+                else if (caisse != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: _carteCaisse(caisse),
+                  ),
+                if (!_organiser && tuiles.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 20, 16, 10),
+                    child: Text(
+                      "Aujourd'hui",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: texteAccueil,
+                      ),
+                    ),
+                  ),
+                  TuilesAujourdhui(tuiles: tuiles),
+                ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Bienvenue,',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.white.withValues(alpha: .8),
-                        ),
-                      ),
-                      Text(
-                        nom,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 21,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Gérez tous vos modules depuis un seul endroit',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          height: 1.3,
-                          color: Colors.white.withValues(alpha: .75),
-                        ),
-                      ),
+                      _enteteModules(),
+                      const SizedBox(height: 10),
+                      if (_organiser) ..._outilsPersonnalisation(),
+                      _grilleModules(),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          const _PastilleReseau(),
-        ],
-      ),
-    );
-  }
-}
-
-class _BoutonEntete extends StatelessWidget {
-  final IconData icone;
-  final String libelle;
-  final VoidCallback onTap;
-
-  const _BoutonEntete({
-    required this.icone,
-    required this.libelle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: libelle,
-      child: Material(
-        color: Colors.white.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white.withValues(alpha: .25)),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icone, size: 19, color: Colors.white),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// « En ligne », mais pour de vrai : la pastille suit l'état réel de la
-/// synchronisation plutôt que d'afficher une pastille verte de principe.
-class _PastilleReseau extends StatelessWidget {
-  const _PastilleReseau();
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Synchronisation.instance,
-      builder: (context, _) {
-        final etat = Synchronisation.instance.etat;
-        final enLigne = etat != EtatSynchro.horsConnexion;
-        final point = enLigne ? const Color(0xFF6FE3A0) : const Color(0xFFFFC46B);
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .13),
-            border: Border.all(color: Colors.white.withValues(alpha: .22)),
-            borderRadius: BorderRadius.circular(100),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: point,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: point.withValues(alpha: .3), blurRadius: 0, spreadRadius: 3),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                etat.libelle,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ],
+          bottomNavigationBar: _BarreBasse(
+            entrees: _entreesBarre,
+            onPersonnaliser: _personnaliserBarre,
           ),
         );
       },
@@ -2376,8 +2294,242 @@ class _PastilleReseau extends StatelessWidget {
   }
 }
 
+/// La tuile « Tous » : en pointillés, parce qu'elle n'est pas un module
+/// mais la porte vers tous les autres.
+class _TuileTous extends StatelessWidget {
+  /// Le nombre de modules qui attendent derrière ; 0 : rien de plus.
+  final int reste;
+  final VoidCallback onTap;
+
+  const _TuileTous({required this.reste, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return BordurePointillee(
+      couleur: AppColors.primaryColor.withValues(alpha: .45),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(rayonAccueil),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(rayonAccueil),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.apps_rounded,
+                    size: 22, color: AppColors.primaryColor),
+                const SizedBox(height: 8),
+                Text(
+                  'Tous',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primaryColor,
+                  ),
+                ),
+                if (reste > 0)
+                  Text(
+                    '+$reste',
+                    style: const TextStyle(
+                      fontSize: 9.5,
+                      color: texteDouxAccueil,
+                      fontFeatures: chiffresTabulaires,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Les départs du jour, en page entière : la liste existante, avec ses
+/// confirmations, sortie de la gestion des biens pour être atteinte
+/// depuis l'accueil.
+class _PageDepartsDuJour extends StatelessWidget {
+  const _PageDepartsDuJour();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: fondAccueil,
+      appBar: AppBar(
+        title: const Text('Départs du jour',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        centerTitle: true,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        backgroundColor: AppColors.primaryColor,
+      ),
+      body: const SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(14, 16, 14, 24),
+        child: DepartsDuJour(),
+      ),
+    );
+  }
+}
+
+/// Tous les modules, avec la recherche.
+///
+/// C'est la page derrière la tuile « Tous » : l'accueil ne montre que les
+/// premiers modules, celle-ci montre le reste et permet de chercher par
+/// nom — le nom choisi, le nom d'origine, ou celui du dossier qui le range.
+class _PageTousModules extends StatefulWidget {
+  final _HomePageState accueil;
+
+  const _PageTousModules({required this.accueil});
+
+  @override
+  State<_PageTousModules> createState() => _PageTousModulesState();
+}
+
+class _PageTousModulesState extends State<_PageTousModules> {
+  final TextEditingController _recherche = TextEditingController();
+  String _requete = '';
+
+  _HomePageState get accueil => widget.accueil;
+
+  bool get _enRecherche => _requete.trim().isNotEmpty;
+
+  @override
+  void dispose() {
+    _recherche.dispose();
+    super.dispose();
+  }
+
+  Widget _champRecherche() => TextField(
+        controller: _recherche,
+        textInputAction: TextInputAction.search,
+        style: const TextStyle(fontSize: 14.5, color: texteAccueil),
+        onChanged: (v) => setState(() => _requete = v),
+        decoration: InputDecoration(
+          hintText: 'Rechercher un module…',
+          hintStyle: const TextStyle(color: Color(0xFF98A6AE)),
+          prefixIcon: const Icon(Icons.search, color: texteDouxAccueil),
+          suffixIcon: _requete.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Effacer',
+                  icon: const Icon(Icons.close, color: texteDouxAccueil),
+                  onPressed: () {
+                    _recherche.clear();
+                    setState(() => _requete = '');
+                  },
+                ),
+          filled: true,
+          fillColor: Colors.white,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: bordureAccueil),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: bordureAccueil),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: AppColors.primaryColor, width: 1.5),
+          ),
+        ),
+      );
+
+  Widget _grille(List<Widget> cartes) => GridView.count(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisCount: 4,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: .84,
+        children: cartes,
+      );
+
+  Widget _carte(int i) {
+    final e = accueil._elements[i];
+    if (e.estDossier) {
+      return _CarteDossier(
+        dossier: e,
+        modules: accueil
+            ._routesAffichees(e)
+            .map((r) => accueil._parRoute[r]!)
+            .toList(),
+        onTap: () async {
+          await accueil._ouvrirDossier(e);
+          if (mounted) setState(() {});
+        },
+      );
+    }
+    final m = accueil._parRoute[e.route]!;
+    return _CarteModule(module: m, titre: accueil._titre(m));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final resultats = accueil._resultatsPour(_requete);
+
+    return Scaffold(
+      backgroundColor: fondAccueil,
+      appBar: AppBar(
+        title: const Text('Tous les modules',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        centerTitle: true,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        backgroundColor: AppColors.primaryColor,
+        actions: [
+          IconButton(
+            tooltip: "Personnaliser l'accueil",
+            icon: const Icon(Icons.dashboard_customize_outlined),
+            onPressed: () {
+              Navigator.of(context).pop();
+              accueil._entrerOrganiser();
+            },
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          _champRecherche(),
+          const SizedBox(height: 14),
+          if (_enRecherche) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 10),
+              child: Text(
+                resultats.isEmpty
+                    ? 'Aucun module ne correspond à « ${_requete.trim()} ».'
+                    : '${resultats.length} module${resultats.length > 1 ? 's' : ''} '
+                        'trouvé${resultats.length > 1 ? 's' : ''}',
+                style: const TextStyle(fontSize: 13.5, color: texteDouxAccueil),
+              ),
+            ),
+            if (resultats.isNotEmpty)
+              _grille(resultats
+                  .map((m) => _CarteModule(module: m, titre: accueil._titre(m)))
+                  .toList()),
+          ] else
+            _grille(accueil._indicesAffiches.map(_carte).toList()),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Carte d'un module ──────────────────────────────────────────────
 
+/// La tuile d'un module : une icône fine dans la couleur de la marque,
+/// son nom dessous.
+///
+/// Les teintes propres à chaque module ont quitté l'accueil : à quatre
+/// par rangée, huit couleurs faisaient un damier. La couleur sert
+/// désormais aux chiffres du jour, où elle porte un sens.
 class _CarteModule extends StatelessWidget {
   final _Module module;
 
@@ -2405,54 +2557,39 @@ class _CarteModule extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(rayonAccueil),
       child: InkWell(
         onTap: onTap ?? () => GoRouter.of(context).push(module.route),
         onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(rayonAccueil),
         child: Stack(
           fit: StackFit.expand,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(14, 22, 14, 18),
+              padding: EdgeInsets.fromLTRB(4, organiser ? 18 : 10, 4, 8),
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: selectionne ? AppColors.primaryColor : const Color(0xFFE2E8EC),
-                  width: selectionne ? 2 : 1,
+                  color: selectionne ? AppColors.primaryColor : bordureAccueil,
+                  width: selectionne ? 1.6 : 1,
                 ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0D17262E),
-                    blurRadius: 10,
-                    offset: Offset(0, 2),
-                  ),
-                ],
+                borderRadius: BorderRadius.circular(rayonAccueil),
+                boxShadow: ombreAccueil,
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: module.fond,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Icon(module.icone, size: 25, color: module.teinte),
-                  ),
-                  const SizedBox(height: 14),
+                  Icon(module.icone, size: 21, color: AppColors.primaryColor),
+                  const SizedBox(height: 8),
                   Text(
                     titre ?? module.titre,
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13.5,
-                      height: 1.3,
+                      fontSize: 11,
+                      height: 1.2,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF17262E),
+                      color: texteAccueil,
                     ),
                   ),
                 ],
@@ -2460,22 +2597,27 @@ class _CarteModule extends StatelessWidget {
             ),
             if (organiser)
               Positioned(
-                top: 10,
-                right: 10,
+                top: 6,
+                right: 6,
                 child: Icon(
                   selectionne ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 21,
-                  color: selectionne ? AppColors.primaryColor : const Color(0xFFB7C3CA),
+                  size: 18,
+                  color: selectionne
+                      ? AppColors.primaryColor
+                      : const Color(0xFFB7C3CA),
                 ),
               ),
             if (onMenu != null)
               Positioned(
-                top: 2,
-                left: 2,
+                top: 0,
+                left: 0,
                 child: IconButton(
                   tooltip: "Renommer ou masquer",
                   visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF6B7B84)),
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(),
+                  icon: const Icon(Icons.more_vert,
+                      size: 18, color: texteDouxAccueil),
                   onPressed: onMenu,
                 ),
               ),
@@ -2486,7 +2628,7 @@ class _CarteModule extends StatelessWidget {
   }
 }
 
-/// Un dossier : l'aperçu de ses modules, son nom et leur nombre.
+/// Un dossier : son icône — ou l'aperçu de ce qu'il contient — et son nom.
 class _CarteDossier extends StatelessWidget {
   final _Element dossier;
   final List<_Module> modules;
@@ -2502,80 +2644,61 @@ class _CarteDossier extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final illustre =
+        dossier.icone != null || dossier.image != null || dossier.couleur != null;
+
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(rayonAccueil),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(rayonAccueil),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
+          padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFE2E8EC)),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x0D17262E),
-                blurRadius: 10,
-                offset: Offset(0, 2),
-              ),
-            ],
+            border: Border.all(color: bordureAccueil),
+            borderRadius: BorderRadius.circular(rayonAccueil),
+            boxShadow: ombreAccueil,
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 62,
-                height: 62,
-                padding: EdgeInsets.all(dossier.image != null ? 0 : 8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2F5),
-                  borderRadius: BorderRadius.circular(18),
+              if (illustre)
+                _iconeDossier(dossier,
+                    taille: dossier.image != null ? 26 : 22, arrondi: 7)
+              else
+                Wrap(
+                  spacing: 3,
+                  runSpacing: 3,
+                  alignment: WrapAlignment.center,
+                  runAlignment: WrapAlignment.center,
+                  children: modules
+                      .take(4)
+                      .map((m) => Icon(m.icone,
+                          size: 10, color: AppColors.primaryColor))
+                      .toList(),
                 ),
-                child: (dossier.icone != null || dossier.image != null || dossier.couleur != null)
-                    ? _iconeDossier(
-                        dossier,
-                        taille: dossier.image != null ? 62 : 30,
-                        arrondi: 18,
-                      )
-                    : Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        alignment: WrapAlignment.center,
-                        runAlignment: WrapAlignment.center,
-                        children: modules
-                            .take(4)
-                            .map((m) => Container(
-                                  width: 19,
-                                  height: 19,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: m.fond,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Icon(m.icone, size: 10, color: m.teinte),
-                                ))
-                            .toList(),
-                      ),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
                 dossier.nom,
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 13.5,
+                  fontSize: 11,
+                  height: 1.2,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF17262E),
+                  color: texteAccueil,
                 ),
               ),
-              const SizedBox(height: 2),
               Text(
-                "${modules.length} module${modules.length > 1 ? 's' : ''}",
-                style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7B84)),
+                '${modules.length}',
+                style: const TextStyle(
+                  fontSize: 9.5,
+                  color: texteDouxAccueil,
+                  fontFeatures: chiffresTabulaires,
+                ),
               ),
             ],
           ),
@@ -2608,7 +2731,7 @@ class _PageDossierState extends State<_PageDossier> {
         accueil._routesAffichees(dossier).map((r) => accueil._parRoute[r]!).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F5F7),
+      backgroundColor: fondAccueil,
       appBar: AppBar(
         title: Text(dossier.nom,
             style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
@@ -2702,10 +2825,10 @@ class _PageDossierState extends State<_PageDossier> {
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 14,
-            childAspectRatio: 1.02,
+            crossAxisCount: _edition ? 3 : 4,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: _edition ? .95 : .84,
             children: modules
                 .map((m) => Stack(
                       fit: StackFit.expand,

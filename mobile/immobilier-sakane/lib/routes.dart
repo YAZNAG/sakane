@@ -118,6 +118,8 @@ class Routes {
   static const String groupesImmobilier = "/groupes-immobilier";
 
 
+ // Biens par etat ; ?type=...&dossier=...&vue=encours|aujourdhui|avenir
+ // (la vue ne vaut que pour les biens reserves).
  static const String immobilierByStatus = "/immobilier-stats/:status";
 
  static const String signature = "/signature";
@@ -140,6 +142,7 @@ class Routes {
   static const String corbeilleReservations = "/corbeille-reservations";
   static const String chargesAnnulees = "/charges-annulees";
   static const String nouvelleReservation = "/nouvelle-reservation";
+  // Caisse ; ?action=encaisser|ouvrir ouvre directement la saisie.
   static const String caisses = "/caisses";
   static const String modelesMessages = "/modeles-messages";
   static const String addCampagne = "/add-campagne";
@@ -232,6 +235,7 @@ class Routes {
               secteurInitial:
                   q['secteur'] != null ? int.tryParse(q['secteur']!) : null,
               sansSecteur: q['sansSecteur'] == '1',
+              rechercheOuverte: q['recherche'] == '1',
             ),
           );
         },
@@ -508,7 +512,8 @@ class Routes {
           pageBuilder: (cxt,state){
             final status=state.pathParameters["status"];
             return NoTransitionPage(child:ImmobilierByStatusPage.page(status!, type: state.uri.queryParameters['type'],
-                dossier: state.uri.queryParameters['dossier']));
+                dossier: state.uri.queryParameters['dossier'],
+                vue: state.uri.queryParameters['vue']));
           }
       ),
       GoRoute(
@@ -591,8 +596,9 @@ class Routes {
       ),
       GoRoute(
           path: caisses,
-          pageBuilder: (cxt, state) =>
-              NoTransitionPage(child: CaissesPage.page())
+          pageBuilder: (cxt, state) => NoTransitionPage(
+              child: CaissesPage.page(
+                  action: state.uri.queryParameters['action']))
       ),
       GoRoute(
           path: addCampagne,

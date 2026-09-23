@@ -41,9 +41,14 @@ class ImmobilierByStatusPage extends StatefulWidget {
   /// Dossier de rangement, lorsque la navigation passe par lui.
   final String? dossier;
 
-  ImmobilierByStatusPage({required this.status, this.type, this.dossier});
+  /// Vue d'ouverture des biens reserves : 'encours', 'aujourdhui' ou
+  /// 'avenir'. L'accueil s'en sert pour ouvrir directement les arrivees
+  /// du jour.
+  final String? vue;
 
-  static Widget page(String status, {String? type, String? dossier}) {
+  ImmobilierByStatusPage({required this.status, this.type, this.dossier, this.vue});
+
+  static Widget page(String status, {String? type, String? dossier, String? vue}) {
     return BlocProvider<ImmobilierByStatusCubit>(
       create: (ctx) =>
           ImmobilierByStatusCubit(status, type, dossier)..fetchData(),
@@ -51,6 +56,7 @@ class ImmobilierByStatusPage extends StatefulWidget {
         status: status,
         type: type,
         dossier: dossier,
+        vue: vue,
       ),
     );
   }
@@ -70,6 +76,8 @@ class _ImmobilierByStatusPageState extends State<ImmobilierByStatusPage> {
   @override
   void initState() {
     super.initState();
+    const vues = {'encours', 'aujourdhui', 'avenir'};
+    if (vues.contains(widget.vue)) _vue = widget.vue!;
     if (widget.status == 'reserved') _chargerArrivees();
   }
 

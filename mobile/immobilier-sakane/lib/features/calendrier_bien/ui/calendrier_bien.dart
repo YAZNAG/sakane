@@ -3,8 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
-import 'package:immobilier/components/error_widget.dart';
-import 'package:immobilier/components/loading_indicator.dart';
 import 'package:immobilier/components/statut_bien_chip.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
 import 'package:immobilier/core/constants/enums/app_status.dart';
@@ -17,13 +15,17 @@ import 'package:immobilier/features/calendrier_bien/ui/components/fiche_bail.dar
 import 'package:immobilier/features/calendrier_bien/ui/components/fiche_reservation.dart';
 import 'package:immobilier/features/calendrier_bien/ui/components/mois_calendrier.dart';
 import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/add_reservation/pre_remplissage_reservation.dart';
 import 'package:immobilier/models/airbnb.dart';
 import 'package:immobilier/models/calendrier_bien.dart';
 import 'package:immobilier/models/manager.dart';
 
-/// Calendrier de gestion d'un bien, a la maniere d'Airbnb : prix des
-/// nuits, blocages et reservations (historique compris).
+/// Calendrier de gestion d'un bien : un mois à la fois, le prix de
+/// chaque nuit, et les séjours posés en barres continues par-dessus.
+///
+/// On y lit d'abord ce qui est occupé et ce qui est libre ; on y agit
+/// ensuite, en glissant le doigt sur les nuits à changer.
 class CalendrierBienPage extends StatefulWidget {
   final int bienId;
   final String? titre;
@@ -42,28 +44,28 @@ class CalendrierBienPage extends StatefulWidget {
 }
 
 class _CalendrierBienPageState extends State<CalendrierBienPage> {
-  final Key _centre = UniqueKey();
-  final ScrollController _defilement = ScrollController();
   /// Droits du calendrier : prix des nuits, blocage, déblocage.
   final bool _peutPrix = Dependencies.get<Manager>().can(AppPermission.updateNightPrices);
   final bool _peutBloquer = Dependencies.get<Manager>().can(AppPermission.blockDates);
   final bool _peutDebloquer = Dependencies.get<Manager>().can(AppPermission.unblockDates);
   final bool _voitAirbnb = Dependencies.get<Manager>().can(AppPermission.viewAirbnb);
-  bool get _peutModifier => _peutPrix || _peutBloquer || _peutDebloquer;
   final bool _peutReserver = Dependencies.get<Manager>().can(AppPermission.createReservation);
 
-  /// Selectionner des nuits sert autant a les gerer (prix, blocage) qu'a
-  /// les reserver : celui qui peut creer une reservation selectionne donc
+  bool get _peutModifier => _peutPrix || _peutBloquer || _peutDebloquer;
+
+  /// Sélectionner des nuits sert autant à les gérer (prix, blocage) qu'à
+  /// les réserver : celui qui peut créer une réservation sélectionne donc
   /// des dates comme un administrateur, sans pouvoir les bloquer.
   bool get _peutSelectionner => _peutModifier || _peutReserver;
 
+  /// Le mois affiché, et les deux repères du glissement en cours.
+  late DateTime _mois = _moisDe(aujourdhui());
+  DateTime? _ancre;
+  DateTime? _dernierGlisse;
+
   CalendrierBienCubit get _cubit => context.read<CalendrierBienCubit>();
 
-  @override
-  void dispose() {
-    _defilement.dispose();
-    super.dispose();
-  }
+  static DateTime _moisDe(DateTime d) => DateTime(d.year, d.month, 1);
 
   @override
   Widget build(BuildContext context) {
@@ -72,273 +74,307 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
         final cal = state.calendrier;
         final titre = (cal?.titre ?? '').isNotEmpty ? cal!.titre! : (widget.titre ?? '');
         return Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            title: const Text('Calendrier',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            centerTitle: true,
-            elevation: 0,
-            foregroundColor: Colors.white,
-            backgroundColor: AppColors.primaryColor,
-            bottom: state.enCours
-                ? const PreferredSize(
-                    preferredSize: Size.fromHeight(3),
-                    child: LinearProgressIndicator(minHeight: 3, color: Colors.white, backgroundColor: Colors.transparent),
-                  )
-                : null,
-            actions: [
-              IconButton(
-                tooltip: "Aujourd'hui",
-                icon: const Icon(Icons.today, color: Colors.white),
-                onPressed: cal == null ? null : _allerAujourdhui,
-              ),
-              if (_voitAirbnb)
-              IconButton(
-                tooltip: 'Airbnb',
-                icon: const FaIcon(FontAwesomeIcons.airbnb, color: Colors.white, size: 20),
-                onPressed: () => _ouvrirAirbnb(titre),
-              ),
-            ],
-          ),
-          body: _corps(state, titre),
-          // Une selection qui touche une reservation Airbnb ne se reserve
-          // pas : le panneau l'indique a la place du bouton.
-          floatingActionButton: _peutReserver && cal != null && !_selectionSurAirbnb(state, cal)
+          backgroundColor: fondAccueil,
+          appBar: _barreTitre(state, titre),
+          body: _corps(state),
+          // Une sélection ouvre sa propre barre d'actions : le bouton
+          // flottant s'efface pour lui laisser le bas de l'écran.
+          floatingActionButton: _peutReserver && cal != null && !state.aSelection
               ? FloatingActionButton.extended(
                   heroTag: 'ajouter-reservation-calendrier',
                   onPressed: () => _ajouterReservation(state),
                   backgroundColor: AppColors.primaryColor,
                   foregroundColor: Colors.white,
                   icon: const Icon(Icons.add),
-                  label: const Text('Ajouter une réservation', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: const Text('Ajouter une réservation',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                 )
               : null,
-          bottomNavigationBar: cal != null && state.aSelection ? _panneauSelection(state, cal) : null,
+          bottomNavigationBar:
+              cal != null && state.aSelection ? _barreActions(state, cal) : null,
         );
       },
     );
   }
 
-  Widget _corps(CalendrierBienState state, String titre) {
-    if (state.statut == AppStatus.error && state.calendrier == null) {
-      return Center(
-        child: MyErrorWidget(
-          error: state.erreur ?? "Le calendrier n'a pas pu être chargé.",
-          action: 'Réessayer',
-          actionCLick: () => _cubit.charger(),
-        ),
-      );
-    }
-    final cal = state.calendrier;
-    if (cal == null) return Center(child: MyLoadingIndicator());
+  // ── La barre de titre ────────────────────────────────────────────
 
-    return Column(
-      children: [
-        _entete(cal, titre),
-        _joursSemaine(),
-        const Divider(height: 1, color: CouleursCalendrier.bordure),
-        Expanded(child: _mois(state, cal)),
-      ],
-    );
-  }
-
-  // ── En-tete ──────────────────────────────────────────────────────
-
-  Widget _entete(CalendrierBien cal, String titre) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: CouleursCalendrier.bordure)),
-      ),
-      child: Column(
+  PreferredSizeWidget _barreTitre(CalendrierBienState state, String titre) {
+    return AppBar(
+      backgroundColor: fondAccueil,
+      surfaceTintColor: fondAccueil,
+      foregroundColor: texteAccueil,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      titleSpacing: 0,
+      title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (titre.isNotEmpty)
-                      Text(titre,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w800, color: CouleursCalendrier.texte)),
-                    const SizedBox(height: 2),
-                    Text.rich(TextSpan(
-                      style: const TextStyle(fontSize: 12.5, color: CouleursCalendrier.texteDoux),
-                      children: [
-                        const TextSpan(text: 'Prix habituel : '),
-                        TextSpan(
-                          text: '${prixSimple(cal.prixBase)} MAD',
-                          style: const TextStyle(fontWeight: FontWeight.w800, color: CouleursCalendrier.texte),
-                        ),
-                        const TextSpan(text: ' / nuit'),
-                      ],
-                    )),
-                    if (cal.statutJour != null) ...[
-                      const SizedBox(height: 6),
-                      StatutBienChip(statut: cal.statutJour!),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _legende(_puce(Colors.white, bordure: true), 'Disponible'),
-                _legende(_puce(CouleursCalendrier.paye), 'Réservée'),
-                _legende(_puce(CouleursCalendrier.passee), 'Passée'),
-                _legende(_puce(CouleursAirbnb.rose), 'Airbnb'),
-                _legende(_puce(CouleursCalendrier.bail), 'Bail longue durée'),
-                _legende(
-                  Container(
-                    width: 16,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: CouleursCalendrier.bloque,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    child: const ClipRRect(
-                      borderRadius: BorderRadius.all(Radius.circular(3)),
-                      child: CustomPaint(painter: RayuresPainter()),
-                    ),
-                  ),
-                  'Bloquée',
-                ),
-                _legende(
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(color: CouleursCalendrier.prixSpecial, shape: BoxShape.circle),
-                  ),
-                  'Prix personnalisé',
-                ),
-              ],
+          const Text('Calendrier',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: texteAccueil)),
+          if (titre.isNotEmpty)
+            Text(
+              titre,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: texteDouxAccueil),
             ),
-          ),
         ],
+      ),
+      actions: [
+        if (_voitAirbnb)
+          IconButton(
+            tooltip: 'Airbnb',
+            icon: const FaIcon(FontAwesomeIcons.airbnb, size: 18, color: texteDouxAccueil),
+            onPressed: () => _ouvrirAirbnb(titre),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(right: 12, left: 2),
+          child: OutlinedButton(
+            onPressed: _mois == _moisDe(aujourdhui()) ? null : _allerAujourdhui,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primaryColor,
+              disabledForegroundColor: AppColors.primaryColor.withValues(alpha: .5),
+              side: BorderSide(color: AppColors.primaryColor.withValues(alpha: .45)),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              minimumSize: const Size(0, 34),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text("Aujourd'hui",
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ],
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(state.enCours ? 3 : 1),
+        child: state.enCours
+            ? const LinearProgressIndicator(
+                minHeight: 3,
+                color: AppColors.primaryColor,
+                backgroundColor: bordureAccueil,
+              )
+            : const Divider(height: 1, thickness: 1, color: bordureAccueil),
       ),
     );
   }
 
-  Widget _puce(Color couleur, {bool bordure = false}) => Container(
-        width: 16,
-        height: 10,
-        decoration: BoxDecoration(
-          color: couleur,
-          borderRadius: BorderRadius.circular(5),
-          border: bordure ? Border.all(color: CouleursCalendrier.rayures) : null,
-        ),
+  // ── Le corps ─────────────────────────────────────────────────────
+
+  Widget _corps(CalendrierBienState state) {
+    final cal = state.calendrier;
+    if (cal == null) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 24),
+        child: state.statut == AppStatus.error
+            ? CarteErreurResume(
+                message: state.erreur ?? "Le calendrier n'a pas pu être chargé.",
+                onReessayer: () => _cubit.charger(),
+              )
+            : const _SqueletteCalendrier(),
       );
-
-  Widget _legende(Widget puce, String texte) => Padding(
-        padding: const EdgeInsets.only(right: 14),
-        child: Row(
-          children: [
-            puce,
-            const SizedBox(width: 5),
-            Text(texte, style: const TextStyle(fontSize: 11.5, color: CouleursCalendrier.texteDoux)),
-          ],
-        ),
-      );
-
-  Widget _joursSemaine() {
-    const initiales = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Row(
-        children: [
-          for (int i = 0; i < 7; i++)
-            Expanded(
-              child: Center(
-                child: Text(
-                  initiales[i],
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: i >= 5 ? AppColors.primaryColor : CouleursCalendrier.texteDoux,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ── Les mois ─────────────────────────────────────────────────────
-
-  Widget _mois(CalendrierBienState state, CalendrierBien cal) {
-    final t = aujourdhui();
-    final moisCourant = DateTime(t.year, t.month, 1);
-    final du = state.du ?? cal.du;
-    final au = state.au ?? cal.au;
-
-    // Mois anterieurs (du plus recent au plus ancien) au-dessus du centre.
-    final avant = <DateTime>[];
-    for (var m = DateTime(moisCourant.year, moisCourant.month - 1, 1);
-        !m.isBefore(DateTime(du.year, du.month, 1));
-        m = DateTime(m.year, m.month - 1, 1)) {
-      avant.add(m);
     }
-    final apres = <DateTime>[];
-    for (var m = moisCourant; !m.isAfter(au); m = DateTime(m.year, m.month + 1, 1)) {
-      apres.add(m);
-    }
-
-    Widget mois(DateTime m) => MoisCalendrier(
-          key: ValueKey(m),
-          mois: m,
-          calendrier: cal,
-          estSelectionne: state.estSelectionne,
-          debutSelection: state.debut,
-          finSelection: state.fin,
-          onTap: (j) => _toucher(state, cal, j),
-        );
 
     return RefreshIndicator(
+      color: AppColors.primaryColor,
       onRefresh: () async {
         final erreur = await _cubit.rafraichir();
         if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
       },
-      child: CustomScrollView(
-        controller: _defilement,
-        center: _centre,
+      child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(child: _boutonPrecedents(state)),
-          // Avant le centre, la liste pousse vers le haut : l'indice 0
-          // est le mois le plus proche.
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (_, i) => mois(avant[i]),
-              childCount: avant.length,
-            ),
+        padding: EdgeInsets.fromLTRB(12, 10, 12, state.aSelection ? 24 : 96),
+        children: [
+          _legende(),
+          const SizedBox(height: 12),
+          _navigationMois(state, cal),
+          if (_estPremierMoisCharge(state)) _voirMoisPrecedents(state),
+          const SizedBox(height: 10),
+          _joursSemaine(),
+          const SizedBox(height: 4),
+          MoisCalendrier(
+            key: ValueKey(_mois),
+            mois: _mois,
+            calendrier: cal,
+            estSelectionne: state.estSelectionne,
+            onTapJour: (j) => _toucher(state, cal, j),
+            onTapReservation: (r) => ouvrirFicheReservation(context, _cubit, r),
+            onTapBail: (b) => ouvrirFicheBail(context, _cubit, b),
+            onTapAirbnb: _ouvrirSejourAirbnb,
+            onGlissementDebut: _peutSelectionner ? _glissementDebut : null,
+            onGlissementVers: _peutSelectionner ? _glissementVers : null,
+            onGlissementFin: _peutSelectionner ? _glissementFin : null,
           ),
-          SliverList(
-            key: _centre,
-            delegate: SliverChildBuilderDelegate(
-              (_, i) => mois(apres[i]),
-              childCount: apres.length,
+          const SizedBox(height: 14),
+          _carteAide(),
+        ],
+      ),
+    );
+  }
+
+  // ── La légende ───────────────────────────────────────────────────
+
+  Widget _legende() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 6,
+      children: [
+        _pastilleLegende(_carre(CouleursCalendrier.sejourPaye), 'Payé'),
+        _pastilleLegende(_carre(CouleursCalendrier.sejourPartiel), 'Partiel'),
+        _pastilleLegende(_carre(CouleursCalendrier.sejourNonPaye), 'Non payé'),
+        _pastilleLegende(_carre(CouleursCalendrier.sejourAirbnb), 'Airbnb'),
+        _pastilleLegende(_carreRaye(), 'Bloqué'),
+        _pastilleLegende(_carre(CouleursCalendrier.bail), 'Bail'),
+      ],
+    );
+  }
+
+  Widget _carre(Color couleur) => Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(color: couleur, borderRadius: BorderRadius.circular(3)),
+      );
+
+  Widget _carreRaye() => Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(
+          color: CouleursCalendrier.bloque,
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: const ClipRRect(
+          borderRadius: BorderRadius.all(Radius.circular(3)),
+          child: CustomPaint(painter: RayuresPainter()),
+        ),
+      );
+
+  Widget _pastilleLegende(Widget carre, String texte) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          carre,
+          const SizedBox(width: 5),
+          Text(texte, style: const TextStyle(fontSize: 11.5, color: texteDouxAccueil)),
+        ],
+      );
+
+  // ── Le mois affiché ──────────────────────────────────────────────
+
+  Widget _navigationMois(CalendrierBienState state, CalendrierBien cal) {
+    final dernier = state.au ?? cal.au;
+    final finChargee = DateTime(dernier.year, dernier.month, 1);
+    final suivantPossible = !DateTime(_mois.year, _mois.month + 1, 1).isAfter(finChargee);
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Mois précédent',
+              onPressed: state.chargementAnterieur ? null : _moisPrecedent,
+              icon: const Icon(Icons.chevron_left, color: texteAccueil),
             ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+            Expanded(
               child: Text(
-                'Calendrier affiché jusqu’au ${dateMoyenne(au)}',
+                titreMois(_mois),
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: CouleursCalendrier.texteDoux),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800, color: texteAccueil),
               ),
+            ),
+            IconButton(
+              tooltip: 'Mois suivant',
+              onPressed: suivantPossible
+                  ? () => setState(() => _mois = DateTime(_mois.year, _mois.month + 1, 1))
+                  : null,
+              icon: const Icon(Icons.chevron_right, color: texteAccueil),
+            ),
+          ],
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: Text(
+                'Prix habituel : ${prixSimple(cal.prixBase)} MAD / nuit',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5, color: texteDouxAccueil),
+              ),
+            ),
+            if (cal.statutJour != null) ...[
+              const SizedBox(width: 8),
+              StatutBienChip(statut: cal.statutJour!, compact: true),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Le mois affiché est le plus ancien que le serveur a donné.
+  bool _estPremierMoisCharge(CalendrierBienState state) {
+    final du = state.du ?? state.calendrier?.du;
+    return du != null && _mois == DateTime(du.year, du.month, 1);
+  }
+
+  Widget _voirMoisPrecedents(CalendrierBienState state) {
+    return Center(
+      child: TextButton.icon(
+        onPressed: state.chargementAnterieur ? null : () => _chargerPrecedents(),
+        icon: state.chargementAnterieur
+            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.history, size: 16),
+        label: const Text('Voir les mois précédents', style: TextStyle(fontSize: 12.5)),
+        style: TextButton.styleFrom(
+          foregroundColor: texteDouxAccueil,
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
+    );
+  }
+
+  Widget _joursSemaine() {
+    const initiales = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    return Row(
+      children: [
+        for (int i = 0; i < 7; i++)
+          Expanded(
+            child: Center(
+              child: Text(
+                initiales[i],
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: i >= 5 ? AppColors.primaryColor : texteDouxAccueil,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _carteAide() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: bordureAccueil,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: texteDouxAccueil),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Touchez une barre pour ouvrir la fiche ; glissez sur les jours '
+              'pour sélectionner une période.',
+              style: TextStyle(fontSize: 12, height: 1.35, color: texteDouxAccueil),
             ),
           ),
         ],
@@ -346,40 +382,55 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
     );
   }
 
-  Widget _boutonPrecedents(CalendrierBienState state) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Center(
-        child: OutlinedButton.icon(
-          onPressed: state.chargementAnterieur
-              ? null
-              : () async {
-                  final erreur = await _cubit.chargerMoisPrecedents();
-                  if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
-                },
-          icon: state.chargementAnterieur
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.history, size: 18),
-          label: const Text('Voir les mois précédents'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: CouleursCalendrier.texte,
-            side: const BorderSide(color: CouleursCalendrier.bordure),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          ),
-        ),
-      ),
-    );
+  // ── Se déplacer dans le temps ────────────────────────────────────
+
+  void _allerAujourdhui() => setState(() => _mois = _moisDe(aujourdhui()));
+
+  Future<void> _chargerPrecedents() async {
+    final erreur = await _cubit.chargerMoisPrecedents();
+    if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
   }
+
+  /// Le mois d'avant ; s'il n'est pas encore chargé, le serveur en
+  /// donne trois de plus avant de l'afficher.
+  Future<void> _moisPrecedent() async {
+    final cible = DateTime(_mois.year, _mois.month - 1, 1);
+    final state = _cubit.state;
+    final du = state.du ?? state.calendrier?.du;
+    if (du != null && cible.isBefore(DateTime(du.year, du.month, 1))) {
+      await _chargerPrecedents();
+      if (!mounted) return;
+      final nouveau = _cubit.state.du;
+      if (nouveau == null || cible.isBefore(DateTime(nouveau.year, nouveau.month, 1))) return;
+    }
+    if (mounted) setState(() => _mois = cible);
+  }
+
+  // ── Airbnb ───────────────────────────────────────────────────────
 
   Future<void> _ouvrirAirbnb(String titre) async {
     await GoRouter.of(context).push(cheminAirbnbBien(widget.bienId, titre: titre));
-    // Un lien enregistre ou synchronise change les sejours Airbnb.
+    // Un lien enregistré ou synchronisé change les séjours Airbnb.
     if (mounted) await _cubit.rafraichir();
   }
 
-  /// Formulaire de reservation du bien, aux nuits selectionnees s'il y
-  /// en a (le depart est le lendemain de la derniere nuit).
+  /// Fiche d'un séjour Airbnb ; un contrat créé depuis la fiche (ou un
+  /// retour de la réservation) recharge le calendrier.
+  Future<void> _ouvrirSejourAirbnb(SejourAirbnb sejour) async {
+    final change = await ouvrirFicheSejourAirbnb(context, sejour, bienId: widget.bienId);
+    if (!change || !mounted) return;
+    final erreur = await _cubit.rafraichir();
+    if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
+  }
+
+  /// La sélection contient une nuit réservée sur Airbnb (un simple
+  /// blocage Airbnb reste libre) : elle ne peut pas être réservée, par
+  /// l'administrateur comme par l'agent.
+  bool _selectionSurAirbnb(CalendrierBienState state, CalendrierBien cal) =>
+      state.aSelection && state.nuitsSelectionnees.any((n) => cal.reservationAirbnbDe(n) != null);
+
+  /// Formulaire de réservation du bien, aux nuits sélectionnées s'il y
+  /// en a (le départ est le lendemain de la dernière nuit).
   Future<void> _ajouterReservation(CalendrierBienState state) async {
     final debut = state.debut, fin = state.finOuDebut;
     final cal = state.calendrier;
@@ -405,35 +456,42 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
     if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
   }
 
-  /// La selection contient une nuit reservee sur Airbnb (un simple
-  /// blocage Airbnb reste libre) : elle ne peut pas etre reservee, par
-  /// l'administrateur comme par l'agent.
-  bool _selectionSurAirbnb(CalendrierBienState state, CalendrierBien cal) =>
-      state.aSelection && state.nuitsSelectionnees.any((n) => cal.reservationAirbnbDe(n) != null);
+  // ── Choisir des nuits ────────────────────────────────────────────
 
-  /// Fiche d'un sejour Airbnb ; un contrat cree depuis la fiche (ou un
-  /// retour de la reservation) recharge le calendrier.
-  Future<void> _ouvrirSejourAirbnb(SejourAirbnb sejour) async {
-    final change = await ouvrirFicheSejourAirbnb(context, sejour, bienId: widget.bienId);
-    if (!change || !mounted) return;
-    final erreur = await _cubit.rafraichir();
-    if (erreur != null && mounted) afficherMessage(context, erreur, erreur: true);
+  /// Le doigt se pose : la période part de ce jour.
+  void _glissementDebut(DateTime jour) {
+    if (jour.isBefore(aujourdhui())) {
+      _ancre = null;
+      return;
+    }
+    _ancre = jour;
+    _dernierGlisse = jour;
+    HapticFeedback.selectionClick();
+    _cubit.selectionner(jour, jour);
   }
 
-  void _allerAujourdhui() {
-    // Le mois courant est l'origine du defilement.
-    if (!_defilement.hasClients) return;
-    _defilement.animateTo(0, duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic);
+  /// Le doigt traverse : la période s'étend jusqu'au jour survolé, en
+  /// avant comme en arrière de son point de départ.
+  void _glissementVers(DateTime jour) {
+    final ancre = _ancre;
+    if (ancre == null || jour == _dernierGlisse || jour.isBefore(aujourdhui())) return;
+    _dernierGlisse = jour;
+    HapticFeedback.selectionClick();
+    _cubit.selectionner(ancre, jour);
   }
 
-  // ── Toucher un jour ──────────────────────────────────────────────
+  void _glissementFin() {
+    _ancre = null;
+    _dernierGlisse = null;
+  }
 
+  /// L'appui simple reste : un jour, puis un second, font la période.
   void _toucher(CalendrierBienState state, CalendrierBien cal, DateTime jour) {
     final reservation = cal.reservationDe(jour);
     final passe = jour.isBefore(aujourdhui());
     final enSelection = state.debut != null && state.fin == null;
 
-    // Une selection commencee se termine sur n'importe quel jour a venir.
+    // Une sélection commencée se termine sur n'importe quel jour à venir.
     if (_peutSelectionner && enSelection && !passe) {
       HapticFeedback.selectionClick();
       _cubit.toucherJour(jour);
@@ -448,11 +506,10 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
       ouvrirFicheBail(context, _cubit, bail);
       return;
     }
-    // Une reservation Airbnb occupe le jour ; un jour seulement bloque sur
-    // Airbnb reste reservable ici : il se selectionne comme un jour libre.
+    // Une réservation Airbnb occupe le jour ; un jour seulement bloqué sur
+    // Airbnb reste réservable ici : il se sélectionne comme un jour libre.
     final sejourAirbnb = cal.sejourAirbnbDe(jour);
-    if (sejourAirbnb != null &&
-        (sejourAirbnb.estReservation || passe || !_peutSelectionner)) {
+    if (sejourAirbnb != null && (sejourAirbnb.estReservation || passe || !_peutSelectionner)) {
       _ouvrirSejourAirbnb(sejourAirbnb);
       return;
     }
@@ -481,14 +538,15 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
     _cubit.toucherJour(jour);
   }
 
-  // ── Panneau de selection ─────────────────────────────────────────
+  // ── La barre d'actions de la sélection ───────────────────────────
 
-  Widget _panneauSelection(CalendrierBienState state, CalendrierBien cal) {
+  Widget _barreActions(CalendrierBienState state, CalendrierBien cal) {
     final nuits = state.nuitsSelectionnees;
     final du = state.debut!;
     final au = state.finOuDebut!;
-    // Un bail ou une reservation Airbnb occupe ses jours comme une
-    // reservation ; un jour seulement bloque sur Airbnb reste libre.
+    final depart = ajouterJours(au, 1);
+    // Un bail ou une réservation Airbnb occupe ses jours comme une
+    // réservation ; un jour seulement bloqué sur Airbnb reste libre.
     final aReservation = nuits.any(cal.estOccupe);
     final aNuitAirbnb = nuits.any((n) => cal.reservationAirbnbDe(n) != null);
     final aBlocage = nuits.any((n) => cal.blocageDe(n) != null);
@@ -496,160 +554,169 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
     final aPrixSpecial = nuits.any(cal.aPrixSpecial);
     final prix = nuits.map(cal.prixDe).toSet();
     final blocage = nuits.length == 1 ? cal.blocageDe(du) : null;
+    final occupe = state.enCours;
 
-    final periode = state.fin == null || du == au
-        ? dateLongue(du)
-        : 'Du ${dateCourte(du)} au ${dateMoyenne(au)}';
+    // Bloquer et débloquer occupent la même place : la période est
+    // libre, ou elle est déjà bloquée.
+    final montreDebloquer = aBlocage && !aLibre && _peutDebloquer;
 
     return SafeArea(
       top: false,
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           boxShadow: [BoxShadow(color: Color(0x2617262E), blurRadius: 18, offset: Offset(0, -4))],
         ),
-        padding: const EdgeInsets.fromLTRB(16, 14, 8, 12),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${periode[0].toUpperCase()}${periode.substring(1)}',
-                        style: const TextStyle(
-                            fontSize: 15.5, fontWeight: FontWeight.w800, color: CouleursCalendrier.texte),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          pluriel(nuits.length, 'nuit'),
-                          prix.length == 1 ? '${prixSimple(prix.first)} MAD / nuit' : 'prix variables',
-                          if (state.fin == null) 'touchez le dernier jour',
-                        ].join(' • '),
-                        style: const TextStyle(fontSize: 12.5, color: CouleursCalendrier.texteDoux),
-                      ),
-                      if (blocage != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            'Bloquée${(blocage.motif ?? '').isEmpty ? '' : ' : ${blocage.motif}'}'
-                            '${(blocage.par ?? '').isEmpty ? '' : ' (par ${blocage.par})'}',
-                            style: const TextStyle(fontSize: 12, color: CouleursCalendrier.erreur),
-                          ),
-                        ),
-                    ],
+                  child: Text(
+                    '${dateChiffree(du)} → ${dateChiffree(depart)} · ${pluriel(nuits.length, 'nuit')}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w800, color: texteAccueil),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Annuler la sélection',
+                TextButton(
                   onPressed: _cubit.annulerSelection,
-                  icon: const Icon(Icons.close, color: CouleursCalendrier.texteDoux),
+                  style: TextButton.styleFrom(
+                    foregroundColor: texteDouxAccueil,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('Annuler', style: TextStyle(fontSize: 13)),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  // Prix et blocages restent reserves a qui peut modifier
-                  // le bien : le panneau n'offre que les actions permises.
-                  if (_peutModifier) ...[
-                    if (_peutPrix)
-                    _action(Icons.sell_outlined, 'Modifier le prix', AppColors.primaryColor,
-                        state.enCours ? null : () => _modifierPrix(cal, prix), plein: true),
-                    if (aPrixSpecial && _peutPrix)
-                      _action(Icons.restart_alt, 'Prix habituel', CouleursCalendrier.prixSpecial,
-                          state.enCours ? null : () => _prixHabituel(nuits.length, cal)),
-                    if (aLibre && _peutBloquer)
-                      _action(Icons.lock_outline, 'Bloquer', CouleursCalendrier.erreur,
-                          state.enCours ? null : () => _bloquer(du, au, nuits.length, aReservation)),
-                    if (aBlocage && _peutDebloquer)
-                      _action(Icons.lock_open, 'Débloquer', const Color(0xFF2E7D32),
-                          state.enCours ? null : () => _debloquer(du, au)),
-                  ],
-                  // Sans droit de modification, la selection ne sert qu'a
-                  // reserver : l'action passe alors au premier plan.
-                  if (!_peutModifier &&
-                      _peutReserver &&
-                      !aReservation &&
-                      !aNuitAirbnb &&
-                      !du.isBefore(aujourdhui()))
-                    _action(Icons.event_available, 'Réserver ces dates', AppColors.primaryColor,
-                        state.enCours ? null : () => _ajouterReservation(state), plein: true),
-                  // Reservee sur Airbnb : rien a reserver ici, pour
-                  // personne (administrateur compris).
-                  if (aNuitAirbnb) _datesAirbnb(),
-                  _action(Icons.close, 'Annuler la sélection', CouleursCalendrier.texteDoux,
-                      _cubit.annulerSelection),
-                ],
+            if (blocage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  'Bloquée${(blocage.motif ?? '').isEmpty ? '' : ' : ${blocage.motif}'}'
+                  '${(blocage.par ?? '').isEmpty ? '' : ' (par ${blocage.par})'}',
+                  style: const TextStyle(fontSize: 12, color: CouleursCalendrier.erreur),
+                ),
               ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (_peutPrix)
+                  Expanded(
+                    child: _bouton('Modifier le prix', AppColors.primaryColor,
+                        occupe ? null : () => _modifierPrix(cal, prix)),
+                  ),
+                if (montreDebloquer)
+                  Expanded(
+                    child: _bouton('Débloquer', const Color(0xFF2E7D32),
+                        occupe ? null : () => _debloquer(du, au)),
+                  )
+                else if (_peutBloquer)
+                  Expanded(
+                    child: _bouton('Bloquer', CouleursCalendrier.erreur,
+                        occupe ? null : () => _bloquer(du, au, nuits.length, aReservation)),
+                  ),
+                if (_peutReserver)
+                  Expanded(
+                    child: aNuitAirbnb
+                        ? _noteAirbnb()
+                        : _bouton(
+                            'Réserver',
+                            AppColors.primaryColor,
+                            occupe || du.isBefore(aujourdhui())
+                                ? null
+                                : () => _ajouterReservation(state),
+                            plein: true,
+                          ),
+                  ),
+              ],
             ),
+            // Le retour au prix habituel ne concerne qu'une période déjà
+            // personnalisée : il reste discret, sous les trois actions.
+            if (aPrixSpecial && _peutPrix)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: occupe ? null : () => _prixHabituel(nuits.length, cal),
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: const Text('Revenir au prix habituel', style: TextStyle(fontSize: 12.5)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: orangeAccueil,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  /// A la place de « Réserver ces dates » quand la selection touche une
-  /// reservation Airbnb.
-  Widget _datesAirbnb() {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: CouleursAirbnb.rose.withValues(alpha: .1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: CouleursAirbnb.rose.withValues(alpha: .45)),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FaIcon(FontAwesomeIcons.airbnb, size: 16, color: CouleursAirbnb.rose),
-            SizedBox(width: 8),
-            Text('Dates réservées sur Airbnb',
-                style: TextStyle(fontWeight: FontWeight.w700, color: CouleursAirbnb.rose)),
-          ],
-        ),
-      ),
+  Widget _bouton(String texte, Color couleur, VoidCallback? onTap, {bool plein = false}) {
+    final libelle = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(texte,
+          maxLines: 1, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
     );
-  }
-
-  Widget _action(IconData icone, String texte, Color couleur, VoidCallback? onTap, {bool plein = false}) {
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
       child: plein
-          ? ElevatedButton.icon(
+          ? ElevatedButton(
               onPressed: onTap,
-              icon: Icon(icone, size: 18),
-              label: Text(texte),
               style: ElevatedButton.styleFrom(
                 backgroundColor: couleur,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 44),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
+              child: libelle,
             )
-          : OutlinedButton.icon(
+          : OutlinedButton(
               onPressed: onTap,
-              icon: Icon(icone, size: 18),
-              label: Text(texte),
               style: OutlinedButton.styleFrom(
                 foregroundColor: couleur,
                 side: BorderSide(color: couleur.withValues(alpha: .45)),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 44),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
+              child: libelle,
             ),
+    );
+  }
+
+  /// À la place de « Réserver » quand la sélection touche une
+  /// réservation Airbnb : ces nuits ne se réservent pas ici.
+  Widget _noteAirbnb() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: Container(
+        height: 44,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: CouleursCalendrier.sejourAirbnb.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: CouleursCalendrier.sejourAirbnb.withValues(alpha: .45)),
+        ),
+        child: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text('Sur Airbnb',
+              maxLines: 1,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: CouleursCalendrier.sejourAirbnb)),
+        ),
+      ),
     );
   }
 
@@ -801,5 +868,50 @@ class _CalendrierBienPageState extends State<CalendrierBienPage> {
     );
     if (!ok || !mounted) return;
     _resultat(await _cubit.debloquer(), 'Dates débloquées.');
+  }
+}
+
+/// L'esquisse du calendrier, le temps de la lecture : la légende, le
+/// mois, la grille des jours.
+class _SqueletteCalendrier extends StatelessWidget {
+  const _SqueletteCalendrier();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 6,
+          children: const [
+            BlocSquelette(hauteur: 11, largeur: 54),
+            BlocSquelette(hauteur: 11, largeur: 60),
+            BlocSquelette(hauteur: 11, largeur: 70),
+            BlocSquelette(hauteur: 11, largeur: 58),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const Center(child: BlocSquelette(hauteur: 18, largeur: 150)),
+        const SizedBox(height: 10),
+        const Center(child: BlocSquelette(hauteur: 11, largeur: 180)),
+        const SizedBox(height: 18),
+        for (int s = 0; s < 5; s++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              children: [
+                for (int c = 0; c < 7; c++)
+                  const Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.all(1.5),
+                      child: BlocSquelette(hauteur: 66, rayon: 10),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }

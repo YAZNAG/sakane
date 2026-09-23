@@ -115,6 +115,17 @@ class CalendrierBienCubit extends Cubit<CalendrierBienState> {
     }
   }
 
+  /// Sélection posée d'un seul geste : le glissement donne ses deux
+  /// bornes d'un coup, dans n'importe quel ordre.
+  void selectionner(DateTime debut, DateTime fin) {
+    final a = CalendrierBien.jour(debut);
+    final b = CalendrierBien.jour(fin);
+    final premier = a.isAfter(b) ? b : a;
+    final dernier = a.isAfter(b) ? a : b;
+    if (state.debut == premier && state.fin == dernier) return;
+    emit(state.copyWith(debut: premier, fin: dernier));
+  }
+
   void annulerSelection() => emit(state.copyWith(debut: null, fin: null));
 
   // ── Modifications ────────────────────────────────────────────────

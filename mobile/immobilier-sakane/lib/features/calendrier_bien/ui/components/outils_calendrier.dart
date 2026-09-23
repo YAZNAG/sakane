@@ -29,6 +29,24 @@ class CouleursCalendrier {
   static Color reservation(ReservationCalendrier r) => estPassee(r) ? passee : paye;
 
   static Color paiement(ReservationCalendrier r) => paye;
+
+  // ── Les couleurs de la legende du calendrier ─────────────────────
+  //
+  // Une barre de sejour dit d'abord ce qui en a ete paye : vert quand
+  // tout est regle, bleu quand une part reste due, rouge sombre quand
+  // rien n'a ete encaisse. Airbnb garde son rouge, le bail son violet.
+
+  static const Color sejourPaye = paye;
+  static const Color sejourPartiel = Color(0xFF2C6FB5);
+  static const Color sejourNonPaye = Color(0xFF8E1F1F);
+  static const Color sejourAirbnb = Color(0xFFE03E3E);
+
+  /// La couleur d'une barre selon le champ `paiement` du serveur.
+  static Color selonPaiement(String paiement) => switch (paiement) {
+        'partiel' => sejourPartiel,
+        'non_paye' => sejourNonPaye,
+        _ => sejourPaye,
+      };
 }
 
 DateTime aujourdhui() => CalendrierBien.jour(DateTime.now());
@@ -60,6 +78,10 @@ String dateCourte(DateTime d) => '${d.day} ${moisCourtsFr[d.month - 1]}';
 
 /// « 12 sept. 2026 »
 String dateMoyenne(DateTime d) => '${dateCourte(d)} ${d.year}';
+
+/// « 29/09 » : la forme courte de la barre de sélection.
+String dateChiffree(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
 
 /// « jeudi 12 septembre 2026 »
 String dateLongue(DateTime d) =>

@@ -124,12 +124,17 @@ class FiltresBiens extends StatefulWidget {
   final int nombreAffiche;
   final VoidCallback onChange;
 
+  /// Le clavier s'ouvre sur la recherche des l'affichage : l'ecran a ete
+  /// atteint par la loupe, l'utilisateur vient pour chercher.
+  final bool rechercheOuverte;
+
   const FiltresBiens({
     super.key,
     required this.criteres,
     required this.tousLesBiens,
     required this.nombreAffiche,
     required this.onChange,
+    this.rechercheOuverte = false,
   });
 
   @override
@@ -201,6 +206,7 @@ class _FiltresBiensState extends State<FiltresBiens> {
         // ---- recherche ----
         TextField(
           controller: _rechercheController,
+          autofocus: widget.rechercheOuverte,
           onChanged: (v) => _maj(() => c.recherche = v.trim()),
           decoration: InputDecoration(
             hintText: "Rechercher par nom, adresse ou secteur...",

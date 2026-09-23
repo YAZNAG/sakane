@@ -29,11 +29,16 @@ import 'package:immobilier/features/caisses/ui/components/section_caisse.dart';
 /// son bloc contient — un nombre, un total — pour qu'on sache s'il vaut
 /// la peine de l'ouvrir.
 class CaissesPage extends StatefulWidget {
-  const CaissesPage({super.key});
+  /// Action à ouvrir d'emblée, demandée par l'écran d'appel :
+  /// « encaisser » ou « ouvrir ». L'accueil s'en sert pour que son bouton
+  /// mène à la saisie et non seulement à cet écran.
+  final String? action;
 
-  static Widget page() => BlocProvider(
+  const CaissesPage({super.key, this.action});
+
+  static Widget page({String? action}) => BlocProvider(
         create: (_) => CaisseCubit()..charger(),
-        child: const CaissesPage(),
+        child: CaissesPage(action: action),
       );
 
   @override
@@ -41,6 +46,37 @@ class CaissesPage extends StatefulWidget {
 }
 
 class _CaissesPageState extends State<CaissesPage> {
+  /// L'action demandée ne s'ouvre qu'une fois, dès que la caisse est lue :
+  /// un rechargement ne rouvre pas la saisie.
+  bool _actionOuverte = false;
+
+  /// Ouvre la saisie demandée par l'écran d'appel, la caisse une fois
+  /// connue — sans elle, ni le report ni le droit ne sont établis.
+  void _ouvrirActionDemandee(BuildContext context, MaCaisse caisse) {
+    final action = widget.action;
+    if (_actionOuverte || action == null) return;
+    _actionOuverte = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      if (action == 'ouvrir' && !caisse.ouverte) {
+        _ouvrirNouvelleCaisse(context, caisse);
+      } else if (action == 'encaisser' &&
+          caisse.ouverte &&
+          peutUn(const [AppPermission.cashIn, AppPermission.freeCashMovement])) {
+        _demanderMontant(
+          context,
+          titre: "Encaisser",
+          aide: "De l'argent reçu d'un client : le solde d'une "
+              "réservation, par exemple.",
+          libelleAction: "Encaisser",
+          avecCommentaire: true,
+          onValide: context.read<CaisseCubit>().encaisserSolde,
+        );
+      }
+    });
+  }
+
   /// Les sections que l'on a ouvertes ou fermées à la main.
   ///
   /// Tenu par l'écran, non par les sections : un rechargement de la
@@ -100,6 +136,8 @@ class _CaissesPageState extends State<CaissesPage> {
             ),
           );
         } else {
+          final maCaisse = state.maCaisse;
+          if (maCaisse != null) _ouvrirActionDemandee(context, maCaisse);
           corps = RefreshIndicator(
             onRefresh: cubit.charger,
             child: ListView(

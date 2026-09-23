@@ -38,17 +38,22 @@ class ImmobilierPage extends StatefulWidget {
   final int? secteurInitial;
   final bool sansSecteur;
 
+  /// Ecran atteint par la loupe : le champ de recherche prend le focus.
+  final bool rechercheOuverte;
+
   ImmobilierPage({
     Key? key,
     this.typeInitial,
     this.secteurInitial,
     this.sansSecteur = false,
+    this.rechercheOuverte = false,
   }) : super(key: key);
 
   static Widget page({
     String? typeInitial,
     int? secteurInitial,
     bool sansSecteur = false,
+    bool rechercheOuverte = false,
   }) =>
       BlocProvider<RealestateCubit>(
         create: (ctx) => RealestateCubit(),
@@ -56,6 +61,7 @@ class ImmobilierPage extends StatefulWidget {
           typeInitial: typeInitial,
           secteurInitial: secteurInitial,
           sansSecteur: sansSecteur,
+          rechercheOuverte: rechercheOuverte,
         ),
       );
 
@@ -151,6 +157,7 @@ class _ImmobilierPageState extends State<ImmobilierPage>
             tousLesBiens: tous,
             nombreAffiche: filtres.length,
             onChange: () => setState(() {}),
+            rechercheOuverte: widget.rechercheOuverte,
           ),
         ],
         corps: filtres.isEmpty

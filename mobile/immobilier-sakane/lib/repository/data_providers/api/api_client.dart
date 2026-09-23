@@ -1,6 +1,10 @@
 import 'package:immobilier/models/bien_desactive.dart';
 import 'package:immobilier/models/reception_whatsapp.dart';
 import 'package:immobilier/models/module_accueil.dart';
+import 'package:immobilier/models/categories_immobilier.dart';
+import 'package:immobilier/models/apercu_famille.dart';
+import 'package:immobilier/models/apercu_bien.dart';
+import 'package:immobilier/models/resume_accueil.dart';
 import 'dart:typed_data';
 import 'package:immobilier/models/charge_annulee.dart';
 
@@ -2752,6 +2756,52 @@ class ApiClient {
       if (dossier != null) 'dossier': dossier,
     });
     return ((reponse.data['data'] ?? []) as List).map((e) => Booking.fromJson(e)).toList();
+  }
+
+  /// Le resume de l'accueil : l'utilisateur, l'agence, sa caisse et les
+  /// compteurs du jour. Une seule lecture pour toute la page d'accueil.
+  Future<ResumeAccueil> resumeAccueil() async {
+    try {
+      final reponse = await _dio.get('/accueil/resume');
+      return ResumeAccueil.depuis(reponse.data);
+    } on DioException catch (ex) {
+      throw Exception(messageServeur(ex, "Le résumé n'a pas pu être chargé."));
+    }
+  }
+
+  /// Les trois familles de biens et leurs compteurs, pour l'ecran
+  /// « Gestion Immobilier ».
+  Future<CategoriesImmobilier> categoriesImmobilier() async {
+    try {
+      final reponse = await _dio.get('/dashboard/immobilier/categories');
+      return CategoriesImmobilier.depuis(reponse.data);
+    } on DioException catch (ex) {
+      throw Exception(
+          messageServeur(ex, "Les catégories n'ont pas pu être chargées."));
+    }
+  }
+
+  /// L'apercu d'une famille de biens : ses compteurs, ses arrivees et ses
+  /// departs du jour. [code] vaut rent-short, rent-long ou selle.
+  Future<ApercuFamille> apercuFamille(String code) async {
+    try {
+      final reponse = await _dio.get('/dashboard/immobilier/famille/$code');
+      return ApercuFamille.depuis(reponse.data);
+    } on DioException catch (ex) {
+      throw Exception(
+          messageServeur(ex, "Cette famille n'a pas pu être chargée."));
+    }
+  }
+
+  /// L'apercu d'un bien pour sa page de gestion : identite, etat du jour,
+  /// sejour en cours, liaison Airbnb.
+  Future<ApercuBien> apercuBien(int bienId) async {
+    try {
+      final reponse = await _dio.get('/dashboard/immobilier/bien/$bienId/apercu');
+      return ApercuBien.depuis(reponse.data);
+    } on DioException catch (ex) {
+      throw Exception(messageServeur(ex, "Le bien n'a pas pu être chargé."));
+    }
   }
 
   /// L'organisation de l'accueil enregistree pour l'utilisateur connecte.

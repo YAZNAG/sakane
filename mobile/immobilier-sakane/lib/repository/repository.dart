@@ -1,6 +1,10 @@
 import 'package:immobilier/models/bien_desactive.dart';
 import 'package:immobilier/models/reception_whatsapp.dart';
 import 'package:immobilier/models/module_accueil.dart';
+import 'package:immobilier/models/categories_immobilier.dart';
+import 'package:immobilier/models/apercu_famille.dart';
+import 'package:immobilier/models/apercu_bien.dart';
+import 'package:immobilier/models/resume_accueil.dart';
 import 'dart:typed_data';
 import 'dart:io';
 import 'package:immobilier/models/booking.dart';
@@ -461,6 +465,20 @@ class Repository {
 
   Future<List<Booking>> fetchArrivees(String quand, {String? type, String? dossier}) =>
       apiClient.fetchArrivees(quand, type: type, dossier: dossier);
+
+  /// Le résumé de l'accueil : utilisateur, agence, caisse, compteurs du jour.
+  Future<ResumeAccueil> resumeAccueil() => apiClient.resumeAccueil();
+
+  /// Les trois familles de biens et leurs compteurs (ecran Immobilier).
+  Future<CategoriesImmobilier> categoriesImmobilier() =>
+      apiClient.categoriesImmobilier();
+
+  /// L'apercu d'une famille : compteurs, arrivees et departs du jour.
+  Future<ApercuFamille> apercuFamille(String code) =>
+      apiClient.apercuFamille(code);
+
+  /// L'apercu d'un bien pour sa page de gestion.
+  Future<ApercuBien> apercuBien(int bienId) => apiClient.apercuBien(bienId);
 
   Future<Map<String, dynamic>?> lireDispositionAccueil() =>
       apiClient.lireDispositionAccueil();
