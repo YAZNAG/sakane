@@ -1,24 +1,39 @@
-import 'package:immobilier/features/biens_desactives/outils_desactivation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:immobilier/components/error_widget.dart';
-import 'package:immobilier/components/loading_indicator.dart';
-import 'package:immobilier/core/constants/app_strings.dart';
-import 'package:immobilier/core/utils/droits.dart';
-import 'package:immobilier/core/constants/enums/app_status.dart';
-import 'package:immobilier/core/extensions/extension_on_date.dart';
-import 'package:immobilier/features/immobilier/detail_immobilier/cubit/immobilier_detail_cubit.dart';
-import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/partage_bien.dart';
-import 'package:immobilier/models/realestate.dart';
-import 'package:immobilier/core/constants/app_colors.dart';
-import 'package:immobilier/components/images_galery.dart';
 import 'package:go_router/go_router.dart';
+import 'package:immobilier/components/images_galery.dart';
+import 'package:immobilier/components/statut_bien_chip.dart';
+import 'package:immobilier/core/constants/app_colors.dart';
+import 'package:immobilier/core/constants/enums/app_status.dart';
+import 'package:immobilier/core/utils/droits.dart';
+import 'package:immobilier/features/baux/ui/components/baux_commun.dart'
+    show BoutonsContact;
+import 'package:immobilier/features/biens_desactives/outils_desactivation.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
+import 'package:immobilier/features/immobilier/detail_immobilier/cubit/immobilier_detail_cubit.dart';
+import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/detail_bien_commun.dart';
+import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/partage_bien.dart';
+import 'package:immobilier/features/immobilier/home_immobilier/ui/components/fiche_bien_commun.dart'
+    show SurTitre;
+import 'package:immobilier/models/media.dart';
+import 'package:immobilier/models/realestate.dart';
 import 'package:immobilier/routes.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-
+/// La fiche « Détails du bien ».
+///
+/// Elle répond à la question de celui qui la lit : de quel bien s'agit-il,
+/// à quoi ressemble-t-il, où est-il, et à qui appartient-il ? Les photos
+/// d'abord, puis l'identité (référence, prix, titre, ville), puis les
+/// chiffres, la description, les équipements, la carte et le propriétaire.
+///
+/// La gestion du bien — calendrier, réservations, ménage — vit ailleurs :
+/// ici le menu ⋮ n'ouvre que le calendrier, le partage et la
+/// désactivation.
 class ImmobilierDetailPage extends StatefulWidget {
-  int id;
-  ImmobilierDetailPage({required this.id});
+  final int id;
+
+  const ImmobilierDetailPage({super.key, required this.id});
 
   static Widget page(int id) {
     return BlocProvider<ImmobilierDetailCubit>(
@@ -32,721 +47,780 @@ class ImmobilierDetailPage extends StatefulWidget {
 }
 
 class _ImmobilierDetailPageState extends State<ImmobilierDetailPage> {
-  PageController _imageController = PageController();
-  int _currentImageIndex = 0;
+  static const double _hauteurPhoto = 250;
 
-  @override
-  void dispose() {
-    _imageController.dispose();
-    super.dispose();
-  }
+  /// La description et la liste d'équipements s'ouvrent à la demande :
+  /// la fiche reste courte tant qu'on ne lui demande pas le détail.
+  bool _descriptionOuverte = false;
+  bool _equipementsOuverts = false;
+
+  /// Au-delà, les équipements sont repliés derrière une puce « + n ».
+  static const int _equipementsVisibles = 5;
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<ImmobilierDetailCubit, ImmobilierDetailState>(
-      builder: (context, state) {
-        // Le bouton de partage vit dans la barre de titre : il lui faut
-        // donc la fiche chargée, d'où le bloc qui enveloppe le Scaffold.
-        final bien = state.realestate;
-
-        return Scaffold(
-          backgroundColor: Colors.grey.shade50,
-          appBar: AppBar(
-            title: Text(
-              "Détails du Bien",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            centerTitle: true,
-            elevation: 0,
-            foregroundColor: Colors.white,
-            backgroundColor: AppColors.primaryColor,
-            actions: [
-              if (peut(AppPermission.viewCalendar))
-              IconButton(
-                onPressed: () => GoRouter.of(context).push(Uri(
-                  path: Routes.calendrierBien.replaceAll(":id", widget.id.toString()),
-                  queryParameters: (bien?.title ?? '').isEmpty ? null : {'titre': bien!.title!},
-                ).toString()),
-                icon: Icon(Icons.calendar_month_outlined, color: Colors.white),
-                tooltip: "Calendrier",
-              ),
-              if (bien != null && peut(AppPermission.shareProperty))
-                IconButton(
-                  onPressed: () => PartageBien.partager(context, bien),
-                  icon: Icon(Icons.share, color: Colors.white),
-                  tooltip: "Partager la fiche",
-                ),
-              if (bien != null && peutChangerActivationBien(bien.estDesactive))
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (choix) => choix == 'reactiver' ? _reactiver(bien) : _desactiver(bien),
-                  itemBuilder: (_) => [
-                    if (bien.estDesactive)
-                      PopupMenuItem(
-                        value: 'reactiver',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.restore, color: Colors.green.shade700),
-                          title: Text("Réactiver le bien"),
-                        ),
-                      )
-                    else
-                      PopupMenuItem(
-                        value: 'desactiver',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.visibility_off_outlined, color: couleurDesactivation),
-                          title: Text("Désactiver le bien"),
-                        ),
-                      ),
-                  ],
-                ),
-            ],
-          ),
-          body: _buildContent(state),
-        );
-      },
+    return Scaffold(
+      backgroundColor: fondAccueil,
+      body: BlocBuilder<ImmobilierDetailCubit, ImmobilierDetailState>(
+        builder: (context, state) => _corps(state),
+      ),
     );
   }
 
-  Widget _buildContent(ImmobilierDetailState state) {
-    if (state.fetchStatus == AppStatus.loading) {
-      return Center(
-        child: MyLoadingIndicator(),
-      );
-    } else if (state.fetchStatus == AppStatus.error) {
-      return MyErrorWidget(
-        error: state.error ?? "Error",
-        action: AppStrings.tryAgain,
-        actionCLick: fetchData,
-      );
+  // ── L'état de la lecture ────────────────────────────────────────
+
+  Widget _corps(ImmobilierDetailState state) {
+    final bien = state.realestate;
+
+    if (bien == null && state.fetchStatus == AppStatus.error) {
+      return _echec(state.error);
     }
-
-    if (state.fetchStatus == AppStatus.success && state.realestate != null) {
-      Realestate realestate = state.realestate!;
-      return _buildSuccessContent(realestate);
+    if (bien == null) {
+      return const SqueletteDetailBien(hauteurPhoto: _hauteurPhoto);
     }
-
-    return SizedBox();
+    return _fiche(bien);
   }
 
-  Widget _buildSuccessContent(Realestate realestate) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (realestate.estDesactive) BandeauBienDesactive(desactiveLe: realestate.desactiveLe!),
-
-          // Image Gallery
-          _buildImageGallery(realestate),
-
-          // Property Info
-          _buildPropertyInfo(realestate),
-
-          // Price and Status
-          _buildPriceAndStatus(realestate),
-
-          // Property Details
-          _buildPropertyDetails(realestate),
-
-          // Features
-          _buildFeatures(realestate),
-
-          // Location
-          _buildLocation(realestate),
-
-          // Owner Information
-          if (realestate.owner != null) _buildOwnerInfo(realestate),
-
-          // Desactivation : action visible en bas de la fiche (pas seulement dans le menu ⋮)
-          if (peutChangerActivationBien(realestate.estDesactive))
-            Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 28),
-              child: BoutonDesactivationBien(
-                desactive: realestate.estDesactive,
-                onDesactiver: () => _desactiver(realestate),
-                onReactiver: () => _reactiver(realestate),
-              ),
-            ),
-
-          // 360 Tour
-
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImageGallery(Realestate realestate) {
-    final images = realestate.media ?? [];
-
-    if (images.isEmpty) {
-      return Container(
-        height: 250,
-        color: Colors.grey.shade200,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.image_not_supported, size: 64, color: Colors.grey.shade400),
-              SizedBox(height: 8),
-              Text(
-                "Aucune image disponible",
-                style: TextStyle(color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      height: 250,
-      child: Stack(
-        children: [
-          PageView.builder(
-            controller: _imageController,
-            onPageChanged: (index) {
-              setState(() {
-                _currentImageIndex = index;
-              });
-            },
-            itemCount: images.length,
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                // ouvre la galerie plein ecran, navigation entre toutes les photos
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ImagesGalery(medias: images, index: index),
-                  ),
-                ),
-                child: Image.network(
-                images[index].url!,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    color: Colors.grey.shade200,
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey.shade200,
-                    child: Center(
-                      child: Icon(Icons.broken_image, size: 64, color: Colors.grey.shade400),
-                    ),
-                  );
-                },
-                ),
-              );
-            },
-          ),
-
-          // Image indicators
-          if (images.length > 1)
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  images.length,
-                      (index) => Container(
-                    margin: EdgeInsets.symmetric(horizontal: 4),
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: index == _currentImageIndex
-                          ? Colors.white
-                          : Colors.white.withOpacity(0.5),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Image counter
-          if (images.length > 1)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  "${_currentImageIndex + 1}/${images.length}",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPropertyInfo(Realestate realestate) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      width: double.infinity,
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            realestate.title ?? "Propriété sans titre",
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 8),
-          if (realestate.description != null && realestate.description!.isNotEmpty)
-            Text(
-              realestate.description!,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade700,
-                height: 1.5,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPriceAndStatus(Realestate realestate) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Prix",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  "${realestate.price?.toStringAsFixed(0) ?? "Non spécifié"} MAD",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green.shade700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (realestate.status != null)
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Color(int.parse('0xFF${realestate.status!.color}')).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Color(int.parse('0xFF${realestate.status!.color}')),
-                ),
-              ),
-              child: Text(
-                realestate.status!.name!,
-                style: TextStyle(
-                  color: Color(int.parse('0xFF${realestate.status!.color}')),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPropertyDetails(Realestate realestate) {
-    return Container(
-      margin: EdgeInsets.only(top: 8),
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Caractéristiques",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 16),
-          _buildDetailGrid([
-            _DetailItem("Surface", "${realestate.surface ?? "N/A"} m²", Icons.square_foot),
-            _DetailItem("Chambres", "${realestate.nbRooms ?? "N/A"}", Icons.bed),
-            _DetailItem("Salles de bain", "${realestate.nbBathroom ?? "N/A"}", Icons.bathtub),
-            _DetailItem("Étages", "${realestate.nbEtages ?? "N/A"}", Icons.layers),
-            _DetailItem("Étage", "${realestate.etage ?? "N/A"}", Icons.elevator),
-            _DetailItem("Catégorie", realestate.category?.name ?? "N/A", Icons.category),
-            _DetailItem("Type", realestate.typeTransaction?.name ?? "N/A", Icons.business),
-            _DetailItem("État", realestate.etat?.name ?? "N/A", Icons.construction),
-          ]),
-          if (realestate.dateConstruction != null) ...[
-            SizedBox(height: 16),
-            _buildDetailRow(
-              "Date de construction",
-              "${realestate.dateConstruction?.formattedDateFr}",
-              Icons.calendar_today,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailGrid(List<_DetailItem> items) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 2.5,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return Container(
-          padding: EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
+  /// La fiche n'a jamais pu être lue : un message discret, un bouton, et
+  /// le retour — qui doit toujours rester possible.
+  Widget _echec(String? message) {
+    return ListView(
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 12),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
-              Icon(item.icon, size: 20, color: AppColors.primaryColor),
-              SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      item.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    Text(
-                      item.value,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
+              BoutonRondAccueil(
+                icone: Icons.arrow_back,
+                libelle: 'Retour',
+                onTap: _retour,
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: AppColors.primaryColor),
-        SizedBox(width: 12),
-        Text(
-          "$label: ",
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey.shade600,
-          ),
         ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
+        const SizedBox(height: 40),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: CarteErreurResume(
+            message: (message ?? '').isEmpty
+                ? "Ce bien n'a pas pu être chargé."
+                : message,
+            onReessayer: _relire,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildFeatures(Realestate realestate) {
-    if (realestate.features == null || realestate.features!.isEmpty) {
-      return SizedBox();
-    }
+  Widget _fiche(Realestate bien) {
+    final sections = <Widget>[
+      _carteIdentite(bien),
+      if (bien.estDesactive && bien.desactiveLe != null)
+        BandeauBienDesactive(
+          desactiveLe: bien.desactiveLe!,
+          margin: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(rayonAccueil),
+        ),
+      ..._description(bien),
+      ..._equipements(bien),
+      ..._localisation(bien),
+      ..._proprietaire(bien),
+      ..._visite360(bien),
+    ];
 
-    return Container(
-      margin: EdgeInsets.only(top: 8),
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final chiffres = _chiffres(bien);
+
+    return RefreshIndicator(
+      onRefresh: _actualiser,
+      edgeOffset: MediaQuery.of(context).padding.top + 8,
+      color: AppColors.primaryColor,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 30),
         children: [
-          Text(
-            "Équipements",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: realestate.features!.map((feature) {
-              return Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: Text(
-                  feature.name!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.primaryColor,
-                    fontWeight: FontWeight.w500,
+          _carrousel(bien),
+          const SizedBox(height: 14),
+          if (chiffres.isNotEmpty) ...[
+            RangeeChiffres(cartes: chiffres),
+            const SizedBox(height: 14),
+          ],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < sections.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 14),
+                  sections[i],
+                ],
+                if (peutChangerActivationBien(bien.estDesactive)) ...[
+                  const SizedBox(height: 24),
+                  BoutonDesactivationBien(
+                    desactive: bien.estDesactive,
+                    onDesactiver: () => _desactiver(bien),
+                    onReactiver: () => _reactiver(bien),
                   ),
-                ),
-              );
-            }).toList(),
+                ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLocation(Realestate realestate) {
-    return Container(
-      margin: EdgeInsets.only(top: 8),
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Localisation",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+  // ── Photos ──────────────────────────────────────────────────────
+
+  List<Media> _photos(Realestate bien) => (bien.media ?? const <Media>[])
+      .where((m) => (m.pleineTaille ?? '').isNotEmpty)
+      .toList();
+
+  Widget _carrousel(Realestate bien) {
+    final photos = _photos(bien);
+    return CarrouselPhotos(
+      photos: photos,
+      hauteur: _hauteurPhoto,
+      onRetour: _retour,
+      onPartager: peut(AppPermission.shareProperty)
+          ? () => _partager(bien)
+          : null,
+      menu: _menu(bien),
+      onOuvrirGalerie: photos.isEmpty
+          ? null
+          : (index) => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ImagesGalery(medias: photos, index: index),
+              ),
+            ),
+    );
+  }
+
+  /// Le menu ⋮ : calendrier, partage, désactivation. Null quand aucune de
+  /// ces actions n'est ouverte à l'utilisateur.
+  Widget? _menu(Realestate bien) {
+    final calendrier = peut(AppPermission.viewCalendar);
+    final partage = peut(AppPermission.shareProperty);
+    final activation = peutChangerActivationBien(bien.estDesactive);
+    if (!calendrier && !partage && !activation) return null;
+
+    return PopupMenuButton<String>(
+      tooltip: 'Autres actions',
+      position: PopupMenuPosition.under,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: (choix) {
+        switch (choix) {
+          case 'calendrier':
+            _ouvrirCalendrier(bien);
+          case 'partager':
+            _partager(bien);
+          case 'desactiver':
+            _desactiver(bien);
+          case 'reactiver':
+            _reactiver(bien);
+        }
+      },
+      itemBuilder: (_) => [
+        if (calendrier)
+          const PopupMenuItem(
+            value: 'calendrier',
+            child: _LigneMenu(
+              icone: Icons.calendar_month_outlined,
+              libelle: 'Calendrier',
             ),
           ),
-          SizedBox(height: 16),
-          if (realestate.address != null) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.location_on, color: Colors.red.shade600, size: 20),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (realestate.address!.address != null)
-                        Text(
-                          realestate.address!.address!,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      if (realestate.address!.city != null) ...[
-                        SizedBox(height: 4),
-                        Text(
-                          "${realestate.address!.city!.name}, ${realestate.address!.region?.name ?? ""}, ${realestate.address!.region!.country?.name ?? ""}",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ],
+        if (partage)
+          const PopupMenuItem(
+            value: 'partager',
+            child: _LigneMenu(
+              icone: Icons.share_outlined,
+              libelle: 'Partager la fiche',
+            ),
+          ),
+        if (activation)
+          PopupMenuItem(
+            value: bien.estDesactive ? 'reactiver' : 'desactiver',
+            child: _LigneMenu(
+              icone: bien.estDesactive
+                  ? Icons.restore
+                  : Icons.visibility_off_outlined,
+              libelle: bien.estDesactive
+                  ? 'Réactiver le bien'
+                  : 'Désactiver le bien',
+              teinte: bien.estDesactive ? vertAccueil : couleurDesactivation,
+            ),
+          ),
+      ],
+      // Le bouton rond blanc lui-meme sert de cible : la pastille de 40 px
+      // se touche, l'icone seule non.
+      child: const CercleFlottant(
+        enfant: Icon(Icons.more_vert, size: 19, color: texteAccueil),
+      ),
+    );
+  }
+
+  // ── Identité ────────────────────────────────────────────────────
+
+  bool _estLongueDuree(Realestate b) => b.typeTransaction?.value == 'rent-long';
+
+  bool _estVente(Realestate b) => b.typeTransaction?.value == 'selle';
+
+  Widget _carteIdentite(Realestate bien) {
+    final reference = bien.referenceLisible;
+    final prix = bien.price?.toDouble();
+    final unite = _estVente(bien)
+        ? null
+        : (_estLongueDuree(bien) ? '/ mois' : '/ nuit');
+
+    final ville = bien.address?.city?.name?.trim() ?? '';
+    final etage = _libelleEtage(bien.etage);
+    final ligne = [
+      if (ville.isNotEmpty) ville,
+      if (etage != null) etage,
+    ].join(' · ');
+
+    final statut = bien.statutJour;
+
+    return CarteAccueil(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: SurTitre(
+                    reference.isEmpty ? 'Bien' : 'Réf. $reference',
                   ),
                 ),
-              ],
-            ),
-            if (realestate.location != null) ...[
-              SizedBox(height: 12),
-              Text(
-                "Coordonnées: ${realestate.location!.latitude?.toStringAsFixed(6)}, ${realestate.location!.longitude?.toStringAsFixed(6)}",
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade500,
-                ),
               ),
+              if (prix != null && prix > 0) ...[
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      montantAccueil(prix),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        height: 1.1,
+                        fontWeight: FontWeight.w800,
+                        color: texteAccueil,
+                        fontFeatures: chiffresTabulaires,
+                      ),
+                    ),
+                    if (unite != null)
+                      Text(
+                        unite,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: texteDouxAccueil,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            (bien.title ?? '').trim().isEmpty ? 'Bien' : bien.title!.trim(),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 20,
+              height: 1.2,
+              fontWeight: FontWeight.w800,
+              color: texteAccueil,
+            ),
+          ),
+          if (ligne.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              ligne,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                color: texteDouxAccueil,
+                fontFeatures: chiffresTabulaires,
+              ),
+            ),
+          ],
+          if (statut != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatutBienChip(statut: statut, compact: true),
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildOwnerInfo(Realestate realestate) {
-    return Container(
-      margin: EdgeInsets.only(top: 8),
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Propriétaire",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Colors.blue.shade100,
-                child: Icon(Icons.person, color: AppColors.primaryColor),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      realestate.owner!.name ?? "Propriétaire",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    if (realestate.owner!.email != null)
-                      Text(
-                        realestate.owner!.tel!,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-             /* IconButton(
-                onPressed: () {
-                  // Contact owner functionality
-                },
-                icon: Icon(Icons.chat_bubble_outline, color: AppColors.primaryColor),
-              ),*/
-            ],
-          ),
-        ],
-      ),
-    );
+  /// « 3e étage », « Rez-de-chaussée », ou rien quand l'étage manque.
+  String? _libelleEtage(int? etage) {
+    if (etage == null) return null;
+    if (etage == 0) return 'Rez-de-chaussée';
+    return '${etage}e étage';
   }
 
-  Widget _build360Tour(Realestate realestate) {
-    return Container(
-      margin: EdgeInsets.only(top: 8),
-      padding: EdgeInsets.all(16),
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Visite Virtuelle",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          SizedBox(height: 16),
-         /* ElevatedButton(
-            onPressed: () async {
-              if (await canLaunch(realestate.tour360Url!)) {
-                await launch(realestate.tour360Url!);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+  // ── Chiffres ────────────────────────────────────────────────────
+
+  /// Seuls les chiffres renseignés ont leur carte : une carte « N/A » ne
+  /// dit rien de plus qu'une carte absente.
+  List<CarteChiffre> _chiffres(Realestate bien) {
+    final cartes = <CarteChiffre>[];
+
+    final surface = bien.surface;
+    if (surface != null && surface > 0) {
+      cartes.add(
+        CarteChiffre(
+          valeur: _nombre(surface),
+          libelle: 'm²',
+          icone: Icons.square_foot,
+        ),
+      );
+    }
+
+    final chambres = bien.nbRooms ?? 0;
+    if (chambres > 0) {
+      cartes.add(
+        CarteChiffre(
+          valeur: '$chambres',
+          libelle: chambres > 1 ? 'chambres' : 'chambre',
+          icone: Icons.bed_outlined,
+        ),
+      );
+    }
+
+    final sdb = bien.nbBathroom ?? 0;
+    if (sdb > 0) {
+      cartes.add(
+        CarteChiffre(
+          valeur: '$sdb',
+          libelle: sdb > 1 ? 'salles de bain' : 'salle de bain',
+          icone: Icons.bathtub_outlined,
+        ),
+      );
+    }
+
+    final construction = bien.dateConstruction;
+    if (construction != null) {
+      cartes.add(
+        CarteChiffre(
+          valeur: '${construction.year}',
+          libelle: 'année',
+          icone: Icons.calendar_today_outlined,
+        ),
+      );
+    }
+
+    return cartes;
+  }
+
+  /// « 86 », « 86,5 » : le zéro décimal ne s'écrit pas.
+  String _nombre(num valeur) {
+    if (valeur == valeur.roundToDouble()) return valeur.round().toString();
+    return valeur.toString().replaceAll('.', ',');
+  }
+
+  // ── Description ─────────────────────────────────────────────────
+
+  List<Widget> _description(Realestate bien) {
+    final texte = bien.description?.trim() ?? '';
+    if (texte.isEmpty) return const [];
+
+    return [
+      CarteAccueil(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const TitreSectionDetail('Description'),
+            const SizedBox(height: 8),
+            Text(
+              texte,
+              maxLines: _descriptionOuverte ? null : 3,
+              overflow: _descriptionOuverte ? null : TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13.5,
+                height: 1.45,
+                color: texteDouxAccueil,
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.view_in_ar, color: Colors.white),
-                SizedBox(width: 8),
-                Text(
-                  "Voir en 360°",
-                  style: TextStyle(color: Colors.white),
+            // Le lien n'est proposé que si le texte dépasse : sur trois
+            // lignes, « Lire la suite » n'ouvrirait rien.
+            if (_descriptionOuverte || _depasse(texte))
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(
+                    () => _descriptionOuverte = !_descriptionOuverte,
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primaryColor,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    _descriptionOuverte ? 'Réduire' : 'Lire la suite',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
+              ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  /// Approximation de « ce texte tient-il en trois lignes ? » : trois
+  /// lignes d'un téléphone étroit portent environ 120 caractères.
+  bool _depasse(String texte) =>
+      texte.length > 120 || texte.split('\n').length > 3;
+
+  // ── Équipements ─────────────────────────────────────────────────
+
+  List<Widget> _equipements(Realestate bien) {
+    final noms = (bien.features ?? [])
+        .map((f) => f.name?.trim() ?? '')
+        .where((n) => n.isNotEmpty)
+        .toList();
+    if (noms.isEmpty) return const [];
+
+    final replie = !_equipementsOuverts && noms.length > _equipementsVisibles;
+    final montres = replie ? noms.take(_equipementsVisibles).toList() : noms;
+    final restants = noms.length - montres.length;
+
+    return [
+      CarteAccueil(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const TitreSectionDetail('Équipements'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final nom in montres) PuceEquipement(nom),
+                if (restants > 0)
+                  PuceEquipement(
+                    '+ $restants',
+                    accentuee: true,
+                    onTap: () => setState(() => _equipementsOuverts = true),
+                  )
+                else if (_equipementsOuverts &&
+                    noms.length > _equipementsVisibles)
+                  PuceEquipement(
+                    'Réduire',
+                    accentuee: true,
+                    onTap: () => setState(() => _equipementsOuverts = false),
+                  ),
               ],
             ),
-          ),*/
-        ],
+          ],
+        ),
       ),
+    ];
+  }
+
+  // ── Localisation ────────────────────────────────────────────────
+
+  List<Widget> _localisation(Realestate bien) {
+    final rue = bien.address?.address?.trim() ?? '';
+    final ville = bien.address?.city?.name?.trim() ?? '';
+    final secteur = bien.secteur?.name?.trim() ?? '';
+    final lien = PartageBien.carte(bien);
+
+    // Ni adresse ni position : la section n'aurait rien à montrer.
+    if (rue.isEmpty && ville.isEmpty && secteur.isEmpty && lien.isEmpty) {
+      return const [];
+    }
+
+    final sousLigne = [
+      if (ville.isNotEmpty) ville,
+      if (secteur.isNotEmpty) secteur,
+    ].join(' · ');
+
+    return [
+      CarteAccueil(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const TitreSectionDetail('Localisation'),
+            if (rue.isNotEmpty || sousLigne.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              if (rue.isNotEmpty)
+                Text(
+                  rue,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: texteAccueil,
+                  ),
+                ),
+              if (sousLigne.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  sousLigne,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: texteDouxAccueil,
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 12),
+            MiniCarte(
+              latitude: bien.location?.latitude?.toDouble(),
+              longitude: bien.location?.longitude?.toDouble(),
+              onOuvrirMaps: lien.isEmpty ? null : () => _ouvrir(lien),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  // ── Propriétaire ────────────────────────────────────────────────
+
+  List<Widget> _proprietaire(Realestate bien) {
+    final owner = bien.owner;
+    if (owner == null) return const [];
+
+    final nom = (owner.name ?? '').trim();
+    if (nom.isEmpty && (owner.tel ?? '').trim().isEmpty) return const [];
+
+    return [
+      CarteAccueil(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primaryColor.withValues(alpha: .1),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                _initiales(nom),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryColor,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SurTitre('Propriétaire'),
+                  const SizedBox(height: 3),
+                  Text(
+                    nom.isEmpty ? 'Propriétaire' : nom,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: texteAccueil,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            BoutonsContact(tel: owner.tel),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  /// « Youssef Amrani » → « YA ».
+  String _initiales(String nom) {
+    final mots = nom
+        .split(RegExp(r'\s+'))
+        .where((m) => m.trim().isNotEmpty)
+        .toList();
+    if (mots.isEmpty) return '?';
+    if (mots.length == 1) {
+      return mots.first.substring(0, 1).toUpperCase();
+    }
+    return '${mots.first.substring(0, 1)}${mots[1].substring(0, 1)}'
+        .toUpperCase();
+  }
+
+  // ── Visite 360° ─────────────────────────────────────────────────
+
+  List<Widget> _visite360(Realestate bien) {
+    final lien = bien.tour360Url?.trim() ?? '';
+    if (lien.isEmpty) return const [];
+
+    return [
+      CarteAccueil(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primaryColor.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.view_in_ar,
+                size: 19,
+                color: AppColors.primaryColor,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Visite 360°',
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                      color: texteAccueil,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Ouvrir la visite virtuelle du bien',
+                    style: TextStyle(fontSize: 12, color: texteDouxAccueil),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Ouvrir la visite 360°',
+              onPressed: () => _ouvrir(lien),
+              icon: const Icon(
+                Icons.open_in_new,
+                size: 20,
+                color: AppColors.primaryColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  // ── Actions ─────────────────────────────────────────────────────
+
+  void _retour() {
+    final routeur = GoRouter.of(context);
+    if (routeur.canPop()) {
+      routeur.pop();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _relire() => context.read<ImmobilierDetailCubit>().fetchData();
+
+  Future<void> _actualiser() async => _relire();
+
+  void _partager(Realestate bien) => PartageBien.partager(context, bien);
+
+  void _ouvrirCalendrier(Realestate bien) {
+    final titre = (bien.title ?? '').trim();
+    GoRouter.of(context).push(
+      Uri(
+        path: Routes.calendrierBien.replaceAll(':id', widget.id.toString()),
+        queryParameters: titre.isEmpty ? null : {'titre': titre},
+      ).toString(),
     );
   }
 
-  void fetchData() {
-    BlocProvider.of<ImmobilierDetailCubit>(context).fetchData();
+  Future<void> _ouvrir(String lien) async {
+    final uri = Uri.tryParse(lien);
+    final messager = ScaffoldMessenger.maybeOf(context);
+    if (uri == null) return;
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) throw Exception();
+    } catch (_) {
+      messager?.showSnackBar(
+        const SnackBar(
+          content: Text("Le lien n'a pas pu être ouvert sur cet appareil."),
+        ),
+      );
+    }
   }
 
   Future<void> _desactiver(Realestate bien) async {
     final ok = await desactiverBienAvecDialogue(context, bien.id ?? widget.id);
     if (!ok || !mounted) return;
-    // Signal de rafraichissement pour les listes appelantes
-    if (GoRouter.of(context).canPop()) {
-      GoRouter.of(context).pop(true);
+    // Signal de rafraichissement pour les listes appelantes.
+    final routeur = GoRouter.of(context);
+    if (routeur.canPop()) {
+      routeur.pop(true);
     } else {
-      fetchData();
+      _relire();
     }
   }
 
   Future<void> _reactiver(Realestate bien) async {
-    final reactive = await reactiverBienAvecDialogue(context, bien.id ?? widget.id, titre: bien.title);
-    if (reactive != null && mounted) fetchData();
+    final reactive = await reactiverBienAvecDialogue(
+      context,
+      bien.id ?? widget.id,
+      titre: bien.title,
+    );
+    if (reactive != null && mounted) _relire();
   }
 }
 
-class _DetailItem {
-  final String label;
-  final String value;
-  final IconData icon;
+/// Une ligne du menu ⋮ : une icône, un libellé.
+class _LigneMenu extends StatelessWidget {
+  final IconData icone;
+  final String libelle;
+  final Color? teinte;
 
-  _DetailItem(this.label, this.value, this.icon);
+  const _LigneMenu({required this.icone, required this.libelle, this.teinte});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icone, size: 19, color: teinte ?? texteAccueil),
+        const SizedBox(width: 12),
+        Text(
+          libelle,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: teinte ?? texteAccueil,
+          ),
+        ),
+      ],
+    );
+  }
 }

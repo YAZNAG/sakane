@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/partage_bien_feuille.dart';
+import 'package:immobilier/models/media.dart';
 import 'package:immobilier/models/realestate.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -74,14 +75,14 @@ class OptionsPartage {
 
   /// Forme courte pour les preferences : « carte,nom,adresse ».
   String enChaine() => [
-        if (carte) 'carte',
-        if (nom) 'nom',
-        if (reference) 'reference',
-        if (ville) 'ville',
-        if (adresse) 'adresse',
-        if (description) 'description',
-        if (caracteristiques) 'caracteristiques',
-      ].join(',');
+    if (carte) 'carte',
+    if (nom) 'nom',
+    if (reference) 'reference',
+    if (ville) 'ville',
+    if (adresse) 'adresse',
+    if (description) 'description',
+    if (caracteristiques) 'caracteristiques',
+  ].join(',');
 
   factory OptionsPartage.depuisChaine(String valeur) {
     final cles = valeur.split(',').toSet();
@@ -118,12 +119,14 @@ class PartageBien {
     return FeuillePartageBien.ouvrir(context, bien);
   }
 
-  /// URL non vides des photos du bien.
-  static List<String> photos(Realestate bien) => (bien.media ?? [])
-      .map((m) => m.url)
-      .whereType<String>()
-      .where((u) => u.trim().isNotEmpty)
+  /// Les photos du bien qui ont une adresse lisible.
+  static List<Media> medias(Realestate bien) => (bien.media ?? const <Media>[])
+      .where((m) => (m.pleineTaille ?? '').isNotEmpty)
       .toList();
+
+  /// URL non vides des photos du bien, dans l'ordre de [medias].
+  static List<String> photos(Realestate bien) =>
+      medias(bien).map((m) => m.pleineTaille!).toList();
 
   // ---------------------------------------------------------------------
   // Envoi
@@ -153,11 +156,13 @@ class PartageBien {
     if (texte.isNotEmpty) {
       await Clipboard.setData(ClipboardData(text: texte));
     }
-    await SharePlus.instance.share(ShareParams(
-      files: photos,
-      text: texte.isEmpty ? null : texte,
-      subject: sujet,
-    ));
+    await SharePlus.instance.share(
+      ShareParams(
+        files: photos,
+        text: texte.isEmpty ? null : texte,
+        subject: sujet,
+      ),
+    );
   }
 
   static Future<void> _partagerTexte(String texte, String sujet) async {
@@ -167,8 +172,7 @@ class PartageBien {
   /// Ouvre WhatsApp avec le texte pret, sans destinataire : l'agent choisit
   /// le contact. Sans WhatsApp installe, la feuille de partage prend le relais.
   static Future<void> _ouvrirWhatsApp(String texte, String sujet) async {
-    final uri = Uri.parse(
-        "whatsapp://send?text=${Uri.encodeComponent(texte)}");
+    final uri = Uri.parse("whatsapp://send?text=${Uri.encodeComponent(texte)}");
     try {
       if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
     } catch (_) {
@@ -184,16 +188,19 @@ class PartageBien {
     List<String> urls, {
     void Function(int faits, int total)? progression,
   }) async {
-    final dossier =
-        Directory("${(await getTemporaryDirectory()).path}/partage");
+    final dossier = Directory(
+      "${(await getTemporaryDirectory()).path}/partage",
+    );
     if (dossier.existsSync()) dossier.deleteSync(recursive: true);
     dossier.createSync(recursive: true);
 
-    final dio = Dio(BaseOptions(
-      responseType: ResponseType.bytes,
-      connectTimeout: const Duration(seconds: 20),
-      receiveTimeout: const Duration(seconds: 30),
-    ));
+    final dio = Dio(
+      BaseOptions(
+        responseType: ResponseType.bytes,
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 30),
+      ),
+    );
 
     var faits = 0;
     progression?.call(0, urls.length);
@@ -246,32 +253,36 @@ class PartageBien {
     Realestate bien, {
     OptionsPartage options = const OptionsPartage(),
   }) {
-    final description =
-        options.description ? (bien.description?.trim() ?? '') : '';
+    final description = options.description
+        ? (bien.description?.trim() ?? '')
+        : '';
     final complet = _assembler(bien, options, description);
     if (complet.length <= _limiteLegende) return complet;
 
     // Place restante pour la description, entete, separateur et points
     // de suspension compris.
     final sansDescription = _assembler(bien, options, '');
-    final place = _limiteLegende -
-        sansDescription.length -
-        _enteteDescription.length -
-        3;
+    final place =
+        _limiteLegende - sansDescription.length - _enteteDescription.length - 3;
 
     return _assembler(
-        bien, options, place < 40 ? '' : _couper(description, place));
+      bien,
+      options,
+      place < 40 ? '' : _couper(description, place),
+    );
   }
 
   static String _assembler(
-      Realestate bien, OptionsPartage o, String description) {
+    Realestate bien,
+    OptionsPartage o,
+    String description,
+  ) {
     final sections = <String>[];
 
     if (o.nom) {
       final lignes = ["*${_texteOu(bien.title, "Bien immobilier")}*"];
-      if (o.reference && bien.id != null) {
-        lignes.add("🔖 Réf. : #${bien.id}");
-      }
+      final ref = reference(bien);
+      if (o.reference && ref.isNotEmpty) lignes.add("🔖 Réf. : $ref");
       sections.add(lignes.join("\n"));
     }
 
@@ -313,6 +324,13 @@ class PartageBien {
   static String _texteOu(String? valeur, String defaut) {
     final v = valeur?.trim() ?? '';
     return v.isEmpty ? defaut : v;
+  }
+
+  /// « AG-0001 », ou « #42 » quand le serveur ne donne pas la reference.
+  static String reference(Realestate bien) {
+    final ref = bien.reference?.trim() ?? '';
+    if (ref.isNotEmpty) return ref;
+    return bien.id == null ? '' : '#${bien.id}';
   }
 
   /// « Agadir - HAY FOUNTY ».

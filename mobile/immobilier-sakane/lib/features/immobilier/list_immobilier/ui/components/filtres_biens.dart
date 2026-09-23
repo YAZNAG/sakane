@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/models/realestate.dart';
 
 /// Criteres de filtrage de la liste des biens.
 class CriteresBiens {
   String recherche;
-  String etat; // tous | disponible | reserve | a_nettoyer | en_cours
+
+  /// tous | disponible | reserve | nettoyage — et, pour les anciens
+  /// appels, a_nettoyer et en_cours, que « nettoyage » réunit.
+  String etat;
   String type; // 'tous' ou le code renvoye par l'API (type_transaction.code)
   int? secteurId;
   bool sansSecteur;
@@ -59,16 +63,38 @@ class CriteresBiens {
   /// Reserve / disponible / nettoyage ne valent que pour la courte duree.
   bool get etatsApplicables => type != 'rent-long' && type != 'selle';
 
+  /// Les mêmes critères, avec un état différent : c'est ainsi que les
+  /// puces se comptent sans dupliquer la règle de filtrage.
+  CriteresBiens copie({String? etat}) => CriteresBiens(
+        recherche: recherche,
+        etat: etat ?? this.etat,
+        type: type,
+        secteurId: secteurId,
+        sansSecteur: sansSecteur,
+        proprietaireId: proprietaireId,
+        prixMin: prixMin,
+        prixMax: prixMax,
+        chambres: chambres,
+      );
+
+  /// Nombre de biens que donnerait un état, les autres critères inchangés.
+  int compterEtat(List<Realestate> biens, String etat) =>
+      copie(etat: etat).appliquer(biens).length;
+
   /// Applique tous les criteres a une liste de biens.
   List<Realestate> appliquer(List<Realestate> biens) {
     return biens.where((b) {
-      // recherche sur le nom ou l'adresse
+      // recherche sur le nom, l'adresse, le secteur ou la reference
       if (recherche.isNotEmpty) {
         final q = recherche.toLowerCase();
         final titre = (b.title ?? '').toLowerCase();
         final adresse = (b.address?.address ?? '').toLowerCase();
         final secteur = (b.secteur?.name ?? '').toLowerCase();
-        if (!titre.contains(q) && !adresse.contains(q) && !secteur.contains(q)) {
+        final reference = b.referenceLisible.toLowerCase();
+        if (!titre.contains(q) &&
+            !adresse.contains(q) &&
+            !secteur.contains(q) &&
+            !reference.contains(q)) {
           return false;
         }
       }
@@ -82,6 +108,10 @@ class CriteresBiens {
           break;
         case 'reserve':
           if (b.booking == null) return false;
+          break;
+        case 'nettoyage':
+          // À nettoyer ou nettoyage en cours : un seul geste à faire.
+          if (b.booking != null || !(b.aNettoyer || b.enNettoyage)) return false;
           break;
         case 'a_nettoyer':
           if (b.booking != null || b.cleaningStatus != 'to_clean') return false;
@@ -117,7 +147,12 @@ class CriteresBiens {
   }
 }
 
-/// Barre de recherche, pastilles d'etat et panneau de filtres repliable.
+/// Recherche, puces d'état et ligne de filtres, au-dessus de la liste.
+///
+/// Les puces disent le nombre qu'elles donneront : on voit avant de
+/// toucher s'il reste quelque chose à voir. La ligne de filtres résume
+/// en clair ce qui est appliqué — « Agadir · 2 chambres » — pour qu'un
+/// filtre oublié ne passe pas pour une liste vide.
 class FiltresBiens extends StatefulWidget {
   final CriteresBiens criteres;
   final List<Realestate> tousLesBiens;
@@ -195,119 +230,56 @@ class _FiltresBiensState extends State<FiltresBiens> {
     return l;
   }
 
+  /// « Agadir · 2 chambres » : ce qui est filtré, dit en clair.
+  String get _resume {
+    final c = widget.criteres;
+    final morceaux = <String>[];
+
+    if (c.type != 'tous') {
+      final t = _types.where((e) => e.key == c.type).map((e) => e.value);
+      morceaux.add(t.isEmpty ? c.type : t.first);
+    }
+    if (c.sansSecteur) {
+      morceaux.add('Sans secteur');
+    } else if (c.secteurId != null) {
+      final s = _secteurs.where((e) => e.key == c.secteurId).map((e) => e.value);
+      if (s.isNotEmpty) morceaux.add(s.first);
+    }
+    if (c.proprietaireId != null) {
+      final p =
+          _proprietaires.where((e) => e.key == c.proprietaireId).map((e) => e.value);
+      if (p.isNotEmpty) morceaux.add(p.first);
+    }
+    if (c.prixMin != null || c.prixMax != null) {
+      final min = c.prixMin?.round();
+      final max = c.prixMax?.round();
+      if (min != null && max != null) {
+        morceaux.add('$min – $max MAD');
+      } else if (min != null) {
+        morceaux.add('dès $min MAD');
+      } else {
+        morceaux.add("jusqu'à $max MAD");
+      }
+    }
+    if (c.chambres != null) {
+      morceaux.add(c.chambres == 4 ? '4 chambres et +' : '${c.chambres} chambres');
+    }
+
+    return morceaux.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.criteres;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-
-        // ---- recherche ----
-        TextField(
-          controller: _rechercheController,
-          autofocus: widget.rechercheOuverte,
-          onChanged: (v) => _maj(() => c.recherche = v.trim()),
-          decoration: InputDecoration(
-            hintText: "Rechercher par nom, adresse ou secteur...",
-            prefixIcon: const Icon(Icons.search, size: 21),
-            suffixIcon: c.recherche.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.close, size: 19),
-                    onPressed: () {
-                      _rechercheController.clear();
-                      _maj(() => c.recherche = '');
-                    },
-                  ),
-            isDense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-          ),
-        ),
         const SizedBox(height: 10),
-
-        // ---- pastilles d'etat (courte duree seulement) ----
-        if (c.etatsApplicables) SizedBox(
-          height: 34,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _pastille('tous', 'Tous', Icons.apps),
-              _pastille('disponible', 'Disponibles', Icons.check_circle_outline,
-                  couleur: Colors.green.shade600),
-              _pastille('reserve', 'Réservés', Icons.event_busy,
-                  couleur: Colors.red.shade600),
-              _pastille('a_nettoyer', 'À nettoyer', Icons.hourglass_empty,
-                  couleur: Colors.blueGrey.shade700),
-              _pastille('en_cours', 'En cours', Icons.cleaning_services,
-                  couleur: Colors.orange.shade700),
-            ],
-          ),
-        ),
+        _champRecherche(c),
+        const SizedBox(height: 10),
+        if (c.etatsApplicables) _puces(c),
         const SizedBox(height: 8),
-
-        // ---- ligne : compteur + bouton filtres ----
-        Row(
-          children: [
-            Text(
-              "${widget.nombreAffiche} bien${widget.nombreAffiche > 1 ? 's' : ''}"
-              "${widget.nombreAffiche != widget.tousLesBiens.length ? ' sur ${widget.tousLesBiens.length}' : ''}",
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const Spacer(),
-            if (c.filtresAvancesActifs)
-              TextButton.icon(
-                onPressed: () => _maj(() => c.reinitialiser()),
-                icon: const Icon(Icons.close, size: 15),
-                label: const Text("Réinitialiser", style: TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey.shade700,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-            const SizedBox(width: 4),
-            TextButton.icon(
-              onPressed: () => setState(() => _panneauOuvert = !_panneauOuvert),
-              icon: Icon(
-                _panneauOuvert ? Icons.expand_less : Icons.tune,
-                size: 17,
-              ),
-              label: Text(
-                c.nombreFiltresActifs > 0
-                    ? "Filtres (${c.nombreFiltresActifs})"
-                    : "Filtres",
-                style: const TextStyle(fontSize: 12.5),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: c.nombreFiltresActifs > 0
-                    ? AppColors.primaryColor
-                    : Colors.grey.shade700,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ],
-        ),
-
-        // ---- panneau repliable ----
+        _ligneFiltres(c),
         AnimatedCrossFade(
           duration: const Duration(milliseconds: 200),
           crossFadeState: _panneauOuvert
@@ -316,44 +288,185 @@ class _FiltresBiensState extends State<FiltresBiens> {
           firstChild: _panneau(c),
           secondChild: const SizedBox(width: double.infinity),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
       ],
     );
   }
 
-  Widget _pastille(String valeur, String libelle, IconData icone, {Color? couleur}) {
-    final actif = widget.criteres.etat == valeur;
-    final c = couleur ?? AppColors.primaryColor;
+  // ── La recherche ─────────────────────────────────────────────────
+
+  Widget _champRecherche(CriteresBiens c) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: bordureAccueil),
+        boxShadow: ombreAccueil,
+      ),
+      child: TextField(
+        controller: _rechercheController,
+        autofocus: widget.rechercheOuverte,
+        textInputAction: TextInputAction.search,
+        onChanged: (v) => _maj(() => c.recherche = v.trim()),
+        style: const TextStyle(fontSize: 14, color: texteAccueil),
+        decoration: InputDecoration(
+          hintText: 'Nom, adresse, secteur…',
+          hintStyle: const TextStyle(fontSize: 14, color: texteDouxAccueil),
+          prefixIcon: const Icon(Icons.search_rounded, size: 21, color: texteDouxAccueil),
+          suffixIcon: c.recherche.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 19, color: texteDouxAccueil),
+                  tooltip: 'Effacer la recherche',
+                  onPressed: () {
+                    _rechercheController.clear();
+                    _maj(() => c.recherche = '');
+                  },
+                ),
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+        ),
+      ),
+    );
+  }
+
+  // ── Les puces d'état ─────────────────────────────────────────────
+
+  Widget _puces(CriteresBiens c) {
+    final biens = widget.tousLesBiens;
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _puce(c, 'tous', 'Tous', c.compterEtat(biens, 'tous')),
+          _puce(c, 'disponible', 'Disponibles', c.compterEtat(biens, 'disponible')),
+          _puce(c, 'reserve', 'Réservés', c.compterEtat(biens, 'reserve')),
+          _puce(c, 'nettoyage', 'Nettoyage', c.compterEtat(biens, 'nettoyage')),
+        ],
+      ),
+    );
+  }
+
+  Widget _puce(CriteresBiens c, String valeur, String libelle, int nombre) {
+    // Les anciens codes de nettoyage tombent sous la même puce.
+    final actif = c.etat == valeur ||
+        (valeur == 'nettoyage' && (c.etat == 'a_nettoyer' || c.etat == 'en_cours'));
     return Padding(
       padding: const EdgeInsets.only(right: 7),
-      child: InkWell(
-        onTap: () => _maj(() => widget.criteres.etat = valeur),
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: actif ? c : Colors.white,
-            border: Border.all(color: actif ? c : Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Row(
-            children: [
-              Icon(icone, size: 14, color: actif ? Colors.white : c),
-              const SizedBox(width: 5),
-              Text(
-                libelle,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: actif ? FontWeight.bold : FontWeight.normal,
-                  color: actif ? Colors.white : Colors.grey.shade800,
-                ),
+      child: Material(
+        color: actif ? texteAccueil : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: () => _maj(() => c.etat = valeur),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: actif ? texteAccueil : bordureAccueil),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '$libelle · $nombre',
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: actif ? FontWeight.w700 : FontWeight.w500,
+                color: actif ? Colors.white : texteAccueil,
+                fontFeatures: chiffresTabulaires,
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  // ── La ligne de filtres ──────────────────────────────────────────
+
+  Widget _ligneFiltres(CriteresBiens c) {
+    final actifs = c.nombreFiltresActifs;
+    final teinte = actifs > 0 ? AppColors.primaryColor : texteDouxAccueil;
+    final resume = _resume;
+
+    return Row(
+      children: [
+        Material(
+          color: actifs > 0
+              ? AppColors.primaryColor.withValues(alpha: .1)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            onTap: () => setState(() => _panneauOuvert = !_panneauOuvert),
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: actifs > 0
+                      ? AppColors.primaryColor.withValues(alpha: .35)
+                      : bordureAccueil,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_panneauOuvert ? Icons.expand_less_rounded : Icons.tune_rounded,
+                      size: 16, color: teinte),
+                  const SizedBox(width: 5),
+                  Text(
+                    actifs > 0 ? 'Filtres · $actifs' : 'Filtres',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: teinte,
+                      fontFeatures: chiffresTabulaires,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            resume.isEmpty
+                ? '${widget.nombreAffiche} affiché${widget.nombreAffiche > 1 ? 's' : ''}'
+                : resume,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: texteDouxAccueil),
+          ),
+        ),
+        if (actifs > 0 || c.recherche.isNotEmpty || c.etat != 'tous')
+          TextButton(
+            onPressed: () {
+              _rechercheController.clear();
+              _maj(() {
+                widget.criteres.reinitialiser();
+                widget.criteres.recherche = '';
+                widget.criteres.etat = 'tous';
+              });
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: texteDouxAccueil,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Effacer', style: TextStyle(fontSize: 12.5)),
+          ),
+      ],
+    );
+  }
+
+  // ── Le panneau des filtres avancés ───────────────────────────────
 
   Widget _panneau(CriteresBiens c) {
     final prixMax = widget.tousLesBiens
@@ -362,12 +475,13 @@ class _FiltresBiensState extends State<FiltresBiens> {
     final borneHaute = prixMax > 0 ? (prixMax / 50).ceil() * 50.0 : 1000.0;
 
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: bordureAccueil),
+        borderRadius: BorderRadius.circular(rayonAccueil),
+        boxShadow: ombreAccueil,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -412,7 +526,7 @@ class _FiltresBiensState extends State<FiltresBiens> {
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
               hint: const Text("Tous les propriétaires",
@@ -475,7 +589,7 @@ class _FiltresBiensState extends State<FiltresBiens> {
         child: Text(
           t,
           style: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
+              fontSize: 13, fontWeight: FontWeight.w700, color: texteAccueil),
         ),
       );
 
@@ -487,9 +601,9 @@ class _FiltresBiensState extends State<FiltresBiens> {
       selected: actif,
       onSelected: (_) => onTap(valeur),
       selectedColor: AppColors.primaryColor,
-      labelStyle: TextStyle(color: actif ? Colors.white : Colors.grey.shade800),
+      labelStyle: TextStyle(color: actif ? Colors.white : texteAccueil),
       backgroundColor: Colors.white,
-      side: BorderSide(color: actif ? AppColors.primaryColor : Colors.grey.shade300),
+      side: BorderSide(color: actif ? AppColors.primaryColor : bordureAccueil),
       showCheckmark: false,
     );
   }
@@ -502,9 +616,9 @@ class _FiltresBiensState extends State<FiltresBiens> {
       selected: actif,
       onSelected: (_) => onTap(valeur),
       selectedColor: AppColors.primaryColor,
-      labelStyle: TextStyle(color: actif ? Colors.white : Colors.grey.shade800),
+      labelStyle: TextStyle(color: actif ? Colors.white : texteAccueil),
       backgroundColor: Colors.white,
-      side: BorderSide(color: actif ? AppColors.primaryColor : Colors.grey.shade300),
+      side: BorderSide(color: actif ? AppColors.primaryColor : bordureAccueil),
       showCheckmark: false,
     );
   }

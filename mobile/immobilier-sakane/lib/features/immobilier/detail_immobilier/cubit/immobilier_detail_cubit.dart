@@ -16,24 +16,33 @@ part 'immobilier_detail_state.dart';
 class ImmobilierDetailCubit extends Cubit<ImmobilierDetailState> {
   ImmobilierDetailCubit(int id) : super(ImmobilierDetailState(id: id));
 
-
-  void fetchData()async{
-    try{
+  void fetchData() async {
+    try {
       emit(state.copyWith(fetchStatus: AppStatus.loading));
-      Repository repository=Dependencies.get<Repository>();
-      Realestate realestate=await repository.fetchRealesate(state.id!);
-      emit(state.copyWith(fetchStatus: AppStatus.success,realestate: realestate));
-    }on NetworkConnectivityException catch(ex){
-      emit(state.copyWith(fetchStatus: AppStatus.error,error: AppStrings.checkConnectivity));
-    }on UnAuthenticatedException catch(ex){
+      Repository repository = Dependencies.get<Repository>();
+      Realestate realestate = await repository.fetchRealesate(state.id!);
+      emit(
+        state.copyWith(fetchStatus: AppStatus.success, realestate: realestate),
+      );
+    } on NetworkConnectivityException catch (ex) {
+      emit(
+        state.copyWith(
+          fetchStatus: AppStatus.error,
+          error: AppStrings.checkConnectivity,
+        ),
+      );
+    } on UnAuthenticatedException catch (ex) {
       logout();
-    }on UnAuthorizedException catch(ex){
-      emit(state.copyWith(fetchStatus: AppStatus.error,error: AppStrings.authorizationError));
-    }catch(ex){
-      emit(state.copyWith(fetchStatus: AppStatus.error,error: "Error"));
+    } on UnAuthorizedException catch (ex) {
+      emit(
+        state.copyWith(
+          fetchStatus: AppStatus.error,
+          error: AppStrings.authorizationError,
+        ),
+      );
+    } catch (ex) {
+      emit(state.copyWith(fetchStatus: AppStatus.error, error: "Error"));
       rethrow;
     }
   }
-
-
 }

@@ -1,7 +1,6 @@
 part of 'immobilier_detail_cubit.dart';
 
 class ImmobilierDetailState {
-
   AppStatus? fetchStatus;
   String? error;
   Realestate? realestate;
@@ -11,21 +10,20 @@ class ImmobilierDetailState {
     this.fetchStatus,
     this.error,
     this.realestate,
-    this.id
+    this.id,
   });
 
   ImmobilierDetailState copyWith({
     AppStatus? fetchStatus,
     String? error,
     Realestate? realestate,
-    int? id
+    int? id,
   }) {
     return ImmobilierDetailState(
-        fetchStatus: fetchStatus ?? this.fetchStatus,
-        error: error ,
-        realestate: realestate ?? this.realestate,
-        id: id ?? this.id
+      fetchStatus: fetchStatus ?? this.fetchStatus,
+      error: error,
+      realestate: realestate ?? this.realestate,
+      id: id ?? this.id,
     );
   }
-
 }

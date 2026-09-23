@@ -1,26 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
 import 'package:immobilier/core/constants/enums/app_status.dart';
+import 'package:immobilier/core/utils/droits.dart';
+import 'package:immobilier/core/utils/nom_agence.dart';
+import 'package:immobilier/core/utils/show_dialogue_question.dart';
 import 'package:immobilier/core/utils/show_toast.dart';
+import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/apparence_dossier.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/cubit/etat_bien.dart';
 import 'package:immobilier/features/gestion_immobilier/groupes/cubit/groupes_cubit.dart';
 import 'package:immobilier/features/gestion_immobilier/groupes/ui/biens_du_dossier.dart';
-import 'package:immobilier/features/gestion_immobilier/groupes/ui/components/carte_groupe.dart';
-import 'package:immobilier/features/gestion_immobilier/groupes/cubit/etat_bien.dart';
-import 'package:immobilier/features/gestion_immobilier/groupes/ui/groupes_immobilier.dart';
-import 'package:toastification/toastification.dart';
-import 'package:immobilier/core/utils/show_dialogue_question.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/ui/components/apercu_commun.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/ui/components/carte_dossier.dart';
 import 'package:immobilier/features/gestion_immobilier/groupes/ui/components/choix_agents.dart';
-import 'package:immobilier/core/utils/droits.dart';
-import 'package:immobilier/models/dossier.dart';
-import 'package:go_router/go_router.dart';
-import 'package:immobilier/routes.dart';
+import 'package:immobilier/features/gestion_immobilier/groupes/ui/groupes_immobilier.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/brouillons.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/liste_brouillons.dart';
 import 'package:immobilier/features/ventes/ui/components/bandeau_ventes.dart';
-import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
+import 'package:immobilier/models/dossier.dart';
+import 'package:immobilier/routes.dart';
+import 'package:toastification/toastification.dart';
+
+/// Le rang d'une étape de saisie, pour l'annoncer au reprenant.
+const Map<String, int> _rangDesEtapes = {
+  'mandat': 1,
+  'signature': 1,
+  'base': 1,
+  'location': 2,
+  'details': 3,
+  'features': 4,
+  'images': 5,
+};
 
 /// Troisième niveau : les dossiers, pour un type et un état donnés.
+///
+/// Un dossier est un repère de rangement — un immeuble, une résidence —
+/// et la grille en montre autant que possible d'un seul regard : on
+/// cherche un dossier par sa forme avant de lire son nom.
 ///
 /// La création et la suppression de dossiers ne sont proposées que
 /// depuis « Tous les biens » : c'est la vue d'ensemble, la seule où le
@@ -44,13 +63,21 @@ class DossiersDuTypePage extends StatefulWidget {
 
 class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
   final GlobalKey<BandeauVentesState> _bandeau = GlobalKey();
+  final TextEditingController _champ = TextEditingController();
+
+  /// La loupe ouvre le champ ; le champ filtre les dossiers par leur nom.
+  bool _recherche = false;
+  String _terme = '';
 
   TypeBien get type => widget.type;
   EtatBien get etat => widget.etat;
 
   bool get _vente => type.code == 'selle' && etat == EtatBien.tous;
 
-  bool get _gestionPossible => etat == EtatBien.tous && peut(AppPermission.createFolder);
+  bool get _gestionPossible =>
+      etat == EtatBien.tous && peut(AppPermission.createFolder);
+
+  bool get _ajoutPossible => peut(AppPermission.createProperty);
 
   /// Au moins une action possible sur un dossier existant.
   bool get _menuDossierPossible => peutUn(const [
@@ -58,6 +85,12 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
         AppPermission.assignFolderAgents,
         AppPermission.deleteFolder,
       ]);
+
+  @override
+  void dispose() {
+    _champ.dispose();
+    super.dispose();
+  }
 
   Future<void> _actualiser(BuildContext context) => Future.wait([
         context.read<GroupesCubit>().charger(),
@@ -88,91 +121,77 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
     }
   }
 
-  /// En-tete de la vente : compteurs par statut, puis brouillons du telephone.
-  List<Widget> _enteteVente(BuildContext context) {
-    final brouillons = Brouillons.filtrer(type: type.code).length;
-    return [
-      BandeauVentes(key: _bandeau),
-      if (brouillons > 0) ...[
-        const SizedBox(height: 10),
-        Material(
-          color: const Color(0xFFFFF7E0),
-          borderRadius: BorderRadius.circular(12),
-          child: ListTile(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            leading: const Icon(Icons.edit_note, color: Color(0xFF8A6100)),
-            title: Text(
-              brouillons > 1 ? '$brouillons brouillons sur ce téléphone' : '1 brouillon sur ce téléphone',
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+  // ── La barre de titre ────────────────────────────────────────────
+
+  /// Le sous-titre dit où l'on est : la nature des dossiers et l'agence,
+  /// ou l'état parcouru quand l'écran est atteint par un filtre.
+  String get _sousTitre {
+    if (etat != EtatBien.tous) return '${etat.titre} · ${type.titre}';
+    final agence = NomAgence.connu;
+    final base = _vente ? 'Dossiers de vente' : 'Immeubles et résidences';
+    return agence.isEmpty ? base : '$base · $agence';
+  }
+
+  AppBar _barre() {
+    if (_recherche) {
+      return appBarClaire(
+        titre: '',
+        retour: IconButton(
+          icon: const Icon(Icons.arrow_back, color: texteAccueil),
+          tooltip: 'Fermer la recherche',
+          onPressed: () => setState(() {
+            _recherche = false;
+            _terme = '';
+            _champ.clear();
+          }),
+        ),
+        actions: [
+          Expanded(
+            child: TextField(
+              controller: _champ,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              onChanged: (v) => setState(() => _terme = v.trim()),
+              style: const TextStyle(fontSize: 15, color: texteAccueil),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'Nom du dossier…',
+                hintStyle: TextStyle(fontSize: 15, color: texteDouxAccueil),
+              ),
             ),
-            subtitle: const Text('Reprendre un bien commencé', style: TextStyle(fontSize: 12)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _brouillons(context),
           ),
+          if (_terme.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.close, color: texteDouxAccueil),
+              tooltip: 'Effacer',
+              onPressed: () => setState(() {
+                _terme = '';
+                _champ.clear();
+              }),
+            ),
+        ],
+      );
+    }
+
+    return appBarClaire(
+      titre: 'Dossiers',
+      sousTitre: _sousTitre,
+      actions: [
+        IconButton(
+          tooltip: 'Chercher un dossier',
+          onPressed: () => setState(() => _recherche = true),
+          icon: const Icon(Icons.search_rounded, color: texteAccueil),
         ),
       ],
-      const SizedBox(height: 12),
-    ];
-  }
-
-  Widget _videVente(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: () => _actualiser(context),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(14, 16, 14, 90),
-        children: [
-          ..._enteteVente(context),
-          const SizedBox(height: 30),
-          Icon(Icons.create_new_folder_outlined, size: 54, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text(
-            "Aucun dossier de vente",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.grey.shade800),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            "Créez un dossier (« Nouveau dossier ») pour ranger vos biens à vendre, "
-            "puis ajoutez-y un bien : le mandat se crée ensuite depuis la fiche du bien.",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, height: 1.4, color: Colors.grey.shade600),
-          ),
-        ],
-      ),
     );
   }
-
-  // La gestion des dossiers n'est plus masquee selon le role lu dans
-  // l'application : un bouton absent n'explique rien. Le serveur reste
-  // seul juge et repond par un message clair a qui n'y a pas droit.
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F5F7),
-      appBar: AppBar(
-        title: Text(_vente ? 'Vente de biens' : etat.titre),
-        centerTitle: true,
-        actions: [
-          if (_vente)
-            IconButton(
-              tooltip: 'Ajouter un bien à vendre',
-              onPressed: () => _ajouterBien(context),
-              icon: const Icon(Icons.add_home_outlined),
-            ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(20),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              _vente ? 'Dossiers de vente' : type.titre,
-              style: TextStyle(
-                  fontSize: 12.5, color: Colors.white.withValues(alpha: 0.85)),
-            ),
-          ),
-        ),
-      ),
+      backgroundColor: fondAccueil,
+      appBar: _barre(),
       body: BlocConsumer<GroupesCubit, GroupesState>(
         listener: (context, state) {
           if (state.actionStatus == AppStatus.success) {
@@ -188,84 +207,200 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
           }
         },
         builder: (context, state) {
-          if (state.fetchStatus == AppStatus.loading) {
-            return const Center(child: CircularProgressIndicator());
+          if (state.fetchStatus == AppStatus.loading && state.biens == null) {
+            return const _SqueletteDossiers();
           }
 
-          final dossiers = state.dossiersDuType(type.code, etat);
-
-          if (dossiers.isEmpty) {
-            return _vente ? _videVente(context) : _aucunBien(context);
+          if (state.biens == null) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
+              children: [
+                CarteErreurResume(
+                  message: state.error ?? "Les dossiers n'ont pas pu être lus.",
+                  onReessayer: () => context.read<GroupesCubit>().charger(),
+                ),
+              ],
+            );
           }
-
-          final brouillons = _vente ? Brouillons.filtrer(type: type.code) : const <BrouillonBien>[];
 
           return RefreshIndicator(
             onRefresh: () => _actualiser(context),
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(
-                  14, 16, 14, _gestionPossible ? 90 : 24),
-              children: [
-                if (_vente) ..._enteteVente(context),
-                _entete(state.compterEtat(type.code, etat), dossiers.length),
-                const SizedBox(height: 14),
-                ...dossiers.asMap().entries.map((e) {
-                  final d = e.value;
-                  final nbBrouillons = _vente ? brouillons.where((b) => b.dossierId == d.id && d.id != null).length : 0;
-                  return CarteGroupe(
-                    nombre: d.nombre,
-                    titre: d.nom,
-                    sousTitre: _vente
-                        ? 'Biens à vendre${nbBrouillons > 0 ? ' · ${pluriel(nbBrouillons, 'brouillon')}' : ''}'
-                        : etat.titre,
-                    libelleAction: 'Voir les biens',
-                    icone: d.id == null
-                        ? Icons.folder_off_outlined
-                        : Icons.folder_outlined,
-                    degrade: _teinte(e.key),
-                    onTap: () => _ouvrirDossier(context, d),
-                    // Le groupe « Sans dossier » n'est pas un vrai dossier.
-                    onMenu: d.id == null || !_menuDossierPossible
-                        ? null
-                        : () => _actionsDossier(context, d, state),
-                  );
-                }),
-              ],
-            ),
+            color: AppColors.primaryColor,
+            child: _corps(context, state),
           );
         },
       ),
-      floatingActionButton: _gestionPossible
-          ? FloatingActionButton.extended(
-              onPressed: () => _creerDossier(context),
-              backgroundColor: AppColors.primaryColor,
-              icon: const Icon(Icons.create_new_folder_outlined,
-                  color: Colors.white),
-              label: const Text('Nouveau dossier',
-                  style: TextStyle(color: Colors.white)),
-            )
-          : null,
+      bottomNavigationBar: _barreDuBas(context),
     );
   }
 
-  Widget _entete(int total, int nbDossiers) {
+  // ── Le corps ─────────────────────────────────────────────────────
+
+  Widget _corps(BuildContext context, GroupesState state) {
+    final tous = state.dossiersDuType(type.code, etat);
+
+    // « Hors dossier » se présente à part, en fin de grille.
+    final horsDossier = tous.where((d) => d.id == null).firstOrNull;
+    var dossiers = tous.where((d) => d.id != null).toList();
+    if (_terme.isNotEmpty) {
+      final q = _terme.toLowerCase();
+      dossiers =
+          dossiers.where((d) => d.nom.toLowerCase().contains(q)).toList();
+    }
+
+    final brouillons = Brouillons.filtrer(type: type.code);
+    final enErreur = state.fetchStatus == AppStatus.error;
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+          14, 14, 14, (_gestionPossible || _ajoutPossible) ? 14 : 24),
+      children: [
+        if (enErreur) ...[
+          CarteErreurResume(
+            message: state.error ?? "Les dossiers n'ont pas pu être relus.",
+            onReessayer: () => context.read<GroupesCubit>().charger(),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (_vente) ...[
+          BandeauVentes(key: _bandeau),
+          const SizedBox(height: 12),
+        ],
+        if (brouillons.isNotEmpty) ...[
+          _bandeauBrouillons(context, brouillons),
+          const SizedBox(height: 12),
+        ],
+        if (dossiers.isEmpty && horsDossier == null)
+          _aucunDossier()
+        else ...[
+          GridView.count(
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 167 / 148,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              ...dossiers.map((d) {
+                final complet =
+                    (state.dossiers ?? []).where((x) => x.id == d.id).firstOrNull;
+                return CarteDossier(
+                  dossierId: d.id,
+                  nom: d.nom,
+                  nombreBiens: d.nombre,
+                  nombreAgents: complet?.agents.length ?? 0,
+                  onTap: () => _ouvrirDossier(context, d),
+                  onMenu: _menuDossierPossible
+                      ? () => _actionsDossier(context, d, state)
+                      : null,
+                );
+              }),
+              if (horsDossier != null)
+                CarteDossier(
+                  nom: 'Hors dossier',
+                  nombreBiens: horsDossier.nombre,
+                  horsDossier: true,
+                  onTap: () => _ouvrirDossier(context, horsDossier),
+                ),
+            ],
+          ),
+          if (_terme.isNotEmpty && dossiers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 14),
+              child: Text(
+                "Aucun dossier ne porte ce nom.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: texteDouxAccueil),
+              ),
+            ),
+        ],
+        if (_menuDossierPossible) ...[
+          const SizedBox(height: 14),
+          _carteAide(),
+        ],
+      ],
+    );
+  }
+
+  /// « 2 brouillons · dernier le 21 sep 2026 à l'étape 3 ».
+  Widget _bandeauBrouillons(
+      BuildContext context, List<BrouillonBien> brouillons) {
+    final dernier = brouillons.first;
+    final etape = _rangDesEtapes[dernier.etape] ?? 1;
+    final jour = DateTime(
+        dernier.modifieLe.year, dernier.modifieLe.month, dernier.modifieLe.day);
+    final quand = jour == aujourdhui() ? "aujourd'hui" : 'le ${dateMoyenne(jour)}';
+
+    return Material(
+      color: const Color(0xFFFFF4E5),
+      borderRadius: BorderRadius.circular(rayonAccueil),
+      child: InkWell(
+        onTap: () => _brouillons(context),
+        borderRadius: BorderRadius.circular(rayonAccueil),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(13, 12, 8, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(rayonAccueil),
+            border: Border.all(color: const Color(0xFFF3DEBE)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.edit_note_rounded, size: 22, color: orangeAccueil),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Reprendre un bien commencé',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF8A5100)),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${pluriel(brouillons.length, 'brouillon')} · '
+                      "dernier $quand à l'étape $etape",
+                      maxLines: 2,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.3,
+                        color: Color(0xFF8A6100),
+                        fontFeatures: chiffresTabulaires,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF8A6100)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Ce que le menu ⋮ propose : dit une fois, en bas, plutôt que deviné.
+  Widget _carteAide() {
     return Container(
-      padding: const EdgeInsets.all(13),
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        color: const Color(0xFFF0F3F5),
+        borderRadius: BorderRadius.circular(rayonAccueil),
+        border: Border.all(color: bordureAccueil),
       ),
       child: Row(
-        children: [
-          Icon(etat.icone, size: 22, color: etat.degrade.first),
-          const SizedBox(width: 10),
+        children: const [
+          Icon(Icons.info_outline_rounded, size: 18, color: texteDouxAccueil),
+          SizedBox(width: 10),
           Expanded(
             child: Text(
-              "$total bien${total > 1 ? 's' : ''} dans "
-              "$nbDossiers dossier${nbDossiers > 1 ? 's' : ''}",
+              "Le menu ⋮ d'un dossier : renommer, icône et couleur, "
+              "agents autorisés, défaire le dossier.",
               style:
-                  const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+                  TextStyle(fontSize: 12, height: 1.35, color: texteDouxAccueil),
             ),
           ),
         ],
@@ -273,42 +408,96 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
     );
   }
 
-  Widget _aucunBien(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(etat.icone, size: 54, color: Colors.grey.shade400),
-            const SizedBox(height: 14),
-            Text(
-              "Aucun bien dans cette catégorie",
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              "${etat.titre} — ${type.titre.toLowerCase()}",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-            ),
-          ],
+  Widget _aucunDossier() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 10),
+      child: Column(
+        children: [
+          const Icon(Icons.create_new_folder_outlined,
+              size: 52, color: Color(0xFFA7B4BB)),
+          const SizedBox(height: 14),
+          Text(
+            _vente ? "Aucun dossier de vente" : "Aucun dossier",
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 15.5, fontWeight: FontWeight.w800, color: texteAccueil),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "Créez un dossier pour ranger vos biens — un immeuble, une "
+            "résidence — puis ajoutez-y un bien.",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, height: 1.4, color: texteDouxAccueil),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Les deux boutons du bas ──────────────────────────────────────
+
+  Widget? _barreDuBas(BuildContext context) {
+    if (!_gestionPossible && !_ajoutPossible) return null;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: bordureAccueil)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          child: Row(
+            children: [
+              if (_gestionPossible)
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: () => _creerDossier(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primaryColor,
+                        side: const BorderSide(color: AppColors.primaryColor),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: const Text('Nouveau dossier',
+                          maxLines: 1,
+                          style: TextStyle(
+                              fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              if (_gestionPossible && _ajoutPossible) const SizedBox(width: 10),
+              if (_ajoutPossible)
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: ElevatedButton(
+                      onPressed: () => _ajouterBien(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryColor,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: const Text('Ajouter un bien',
+                          maxLines: 1,
+                          style: TextStyle(
+                              fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  List<Color> _teinte(int index) {
-    final base = type.degrade;
-    final facteur = (index % 4) * 0.09;
-    return [
-      Color.lerp(base.first, Colors.black, facteur)!,
-      Color.lerp(base.last, Colors.white, facteur * 0.6)!,
-    ];
-  }
+  // ── Les gestes ───────────────────────────────────────────────────
 
   void _ouvrirDossier(BuildContext context, GroupeDossier dossier) async {
     final cubit = context.read<GroupesCubit>();
@@ -346,7 +535,7 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
     if (context.mounted) cubit.charger();
   }
 
-  /// Renommer, confier a des agents, ou supprimer si le dossier est vide.
+  /// Renommer, changer son repère, le confier à des agents, ou le défaire.
   void _actionsDossier(
       BuildContext context, GroupeDossier dossier, GroupesState state) {
     final cubit = context.read<GroupesCubit>();
@@ -356,8 +545,9 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
 
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (feuille) => SafeArea(
         child: Column(
@@ -367,66 +557,90 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: Row(
                 children: [
-                  const Icon(Icons.folder_outlined, size: 20),
+                  Icon(ApparencesDossiers.de(dossier.id).icone,
+                      size: 20, color: ApparencesDossiers.de(dossier.id).couleur),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Text(dossier.nom,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            fontSize: 15.5, fontWeight: FontWeight.bold)),
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            color: texteAccueil)),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1),
+            const Divider(height: 1, color: bordureAccueil),
             if (peut(AppPermission.updateFolder))
+              ListTile(
+                leading: const Icon(Icons.drive_file_rename_outline, size: 21),
+                title: const Text("Renommer"),
+                onTap: () {
+                  Navigator.of(feuille).pop();
+                  _renommer(context, dossier, cubit);
+                },
+              ),
             ListTile(
-              leading: const Icon(Icons.drive_file_rename_outline, size: 21),
-              title: const Text("Renommer"),
-              onTap: () {
+              leading: const Icon(Icons.palette_outlined, size: 21),
+              title: const Text("Icône et couleur"),
+              subtitle: const Text("Repère gardé sur ce téléphone",
+                  style: TextStyle(fontSize: 12)),
+              onTap: () async {
                 Navigator.of(feuille).pop();
-                _renommer(context, dossier, cubit);
+                if (dossier.id == null) return;
+                final change = await ApparencesDossiers.choisir(
+                  context,
+                  dossierId: dossier.id!,
+                  nom: dossier.nom,
+                );
+                if (change && mounted) setState(() {});
               },
             ),
             if (peut(AppPermission.assignFolderAgents))
-            ListTile(
-              leading: const Icon(Icons.people_alt_outlined, size: 21),
-              title: const Text("Agents autorises"),
-              subtitle: Text(
-                agents.isEmpty
-                    ? "Ouvert a toute l'equipe"
-                    : agents.map((a) => a.nom).join(', '),
-                style: const TextStyle(fontSize: 12),
+              ListTile(
+                leading: const Icon(Icons.people_alt_outlined, size: 21),
+                title: const Text("Agents autorisés"),
+                subtitle: Text(
+                  agents.isEmpty
+                      ? "Ouvert à toute l'équipe"
+                      : agents.map((a) => a.nom).join(', '),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onTap: () async {
+                  Navigator.of(feuille).pop();
+                  final choisis = await ChoixAgents.ouvrir(
+                    context,
+                    nomDossier: dossier.nom,
+                    selection: agents
+                        .where((a) => a.id != null)
+                        .map((a) => a.id!)
+                        .toList(),
+                  );
+                  if (choisis != null && dossier.id != null) {
+                    cubit.affecterAgents(dossier.id!, choisis);
+                  }
+                },
               ),
-              onTap: () async {
-                Navigator.of(feuille).pop();
-                final choisis = await ChoixAgents.ouvrir(
-                  context,
-                  nomDossier: dossier.nom,
-                  selection:
-                      agents.where((a) => a.id != null).map((a) => a.id!).toList(),
-                );
-                if (choisis != null && dossier.id != null) {
-                  cubit.affecterAgents(dossier.id!, choisis);
-                }
-              },
-            ),
             if (peut(AppPermission.deleteFolder))
-            ListTile(
-              leading: Icon(Icons.delete_outline,
-                  size: 21, color: Colors.red.shade700),
-              title: Text("Supprimer",
-                  style: TextStyle(color: Colors.red.shade700)),
-              subtitle: Text(
-                dossier.nombre > 0
-                    ? "Impossible : ${dossier.nombre} bien(s) a l'interieur"
-                    : "Le dossier est vide",
-                style: const TextStyle(fontSize: 12),
+              ListTile(
+                leading: const Icon(Icons.folder_off_outlined,
+                    size: 21, color: rougeAccueil),
+                title: const Text("Défaire le dossier",
+                    style: TextStyle(color: rougeAccueil)),
+                subtitle: Text(
+                  dossier.nombre > 0
+                      ? "Impossible : ${dossier.nombre} bien(s) à l'intérieur"
+                      : "Le dossier est vide",
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onTap: () {
+                  Navigator.of(feuille).pop();
+                  _supprimer(context, dossier, cubit);
+                },
               ),
-              onTap: () {
-                Navigator.of(feuille).pop();
-                _supprimer(context, dossier, cubit);
-              },
-            ),
+            const SizedBox(height: 6),
           ],
         ),
       ),
@@ -469,7 +683,7 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
     // Le serveur refuse de toute facon : autant l'expliquer tout de suite.
     if (dossier.nombre > 0) {
       showToast("Dossier non vide", context,
-          description: "Deplacez d'abord ses ${dossier.nombre} bien(s).",
+          description: "Déplacez d'abord ses ${dossier.nombre} bien(s).",
           type: ToastificationType.warning,
           second: 4);
       return;
@@ -477,11 +691,13 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
 
     final ok = await showDialogueQuestion(
       context,
-      "Supprimer le dossier " + dossier.nom + " ?",
-      "Supprimer",
+      "Défaire le dossier « ${dossier.nom} » ?",
+      "Défaire",
       "Annuler",
     );
     if (ok == true && dossier.id != null) {
+      // Le repère local n'a plus de dossier à désigner.
+      ApparencesDossiers.oublier(dossier.id!);
       cubit.supprimerDossier(dossier.id!, dossier.nom);
     }
   }
@@ -542,6 +758,33 @@ class _DossiersDuTypePageState extends State<DossiersDuTypePage> {
         typeCode: type.code,
       );
     }
+  }
+}
+
+/// L'esquisse de la grille, le temps de la première lecture.
+class _SqueletteDossiers extends StatelessWidget {
+  const _SqueletteDossiers();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        const BlocSquelette(hauteur: 64, rayon: rayonAccueil),
+        const SizedBox(height: 12),
+        GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 167 / 148,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: List.generate(
+              6, (_) => const BlocSquelette(hauteur: 148, rayon: rayonAccueil)),
+        ),
+      ],
+    );
   }
 }
 

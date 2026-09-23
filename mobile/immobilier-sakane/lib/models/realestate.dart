@@ -100,11 +100,25 @@ class Realestate {
   /// Date de desactivation du bien (null quand le bien est actif).
   DateTime? desactiveLe;
 
+  /// « AG-0001 » : la reference lisible du bien, ecrite par le serveur.
+  /// Absente des anciennes reponses : la fiche se replie alors sur l'id.
+  String? reference;
+
+  /// Vrai quand le bien est relie a une annonce Airbnb.
+  bool airbnbRelie = false;
+
   bool get estDesactive => desactiveLe != null;
 
   /// Statut du jour calcule par le serveur (disponible, occupe…).
   /// Rien a voir avec [etat] (« Bon état »…).
   StatutJour? statutJour;
+
+  /// « AG-0001 », ou le numero du bien quand la reference manque.
+  String get referenceLisible {
+    final ref = reference?.trim() ?? '';
+    if (ref.isNotEmpty) return ref;
+    return id == null ? '' : '$id';
+  }
 
   /// Le menage n'a pas encore commence : l'appartement attend.
   bool get aNettoyer => cleaningStatus == 'to_clean';
@@ -188,6 +202,13 @@ class Realestate {
           ? DateTime.tryParse(json['desactiveLe'])
           : null
       ..statutJour = StatutJour.depuis(json['statutJour'])
+      ..reference = json['reference'] is String &&
+              (json['reference'] as String).trim().isNotEmpty
+          ? (json['reference'] as String).trim()
+          : null
+      // Le serveur peut l'ecrire a plat ou dans le bloc « airbnb ».
+      ..airbnbRelie = json['airbnbRelie'] == true ||
+          (json['airbnb'] is Map && (json['airbnb'] as Map)['relie'] == true)
       ..cleaningStatus = json['cleaningStatus']
       ..checkoutAt = json['checkoutAt'] != null
           ? DateTime.tryParse(json['checkoutAt'])
@@ -300,6 +321,10 @@ class Realestate {
       files: files??this.files,
       reservedDates: reservedDates ?? this.reservedDates,
       status: status ?? this.status
-    )..statutJour = statutJour;
+    )
+      ..statutJour = statutJour
+      ..reference = reference
+      ..airbnbRelie = airbnbRelie
+      ..desactiveLe = desactiveLe;
   }
 }

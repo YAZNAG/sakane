@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:immobilier/core/constants/enums/app_status.dart';
 import 'package:immobilier/core/dependencies/dependencies.dart';
+import 'package:immobilier/core/utils/nom_agence.dart';
 import 'package:immobilier/models/resume_accueil.dart';
 import 'package:immobilier/repository/repository.dart';
 
@@ -49,6 +50,9 @@ class ResumeAccueilCubit extends Cubit<ResumeAccueilState> {
     emit(state.copyWith(chargement: AppStatus.loading));
     try {
       final resume = await _depot.resumeAccueil();
+      // Le nom de l'agence ne vient que d'ici : les autres écrans le
+      // relisent sur le téléphone plutôt que de rappeler le serveur.
+      NomAgence.retenir(resume.agence);
       if (isClosed) return;
       emit(ResumeAccueilState(
         chargement: AppStatus.success,

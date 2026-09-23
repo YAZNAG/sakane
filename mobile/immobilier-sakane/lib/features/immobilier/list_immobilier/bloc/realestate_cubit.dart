@@ -32,7 +32,7 @@ class RealestateCubit extends Cubit<RealestateState> {
     }
   }
 
-  void fetchData()async{
+  Future<void> fetchData() async {
     try{
       emit(state.copyWith(fetchStatus: AppStatus.loading));
       Repository repository=Dependencies.get<Repository>();

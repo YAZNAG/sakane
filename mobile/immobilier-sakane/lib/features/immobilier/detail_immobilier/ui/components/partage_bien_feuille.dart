@@ -1,19 +1,25 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
 import 'package:immobilier/core/dependencies/dependencies.dart';
 import 'package:immobilier/core/services/shared_pref_service.dart';
+import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
+import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/detail_bien_commun.dart'
+    show CercleFlottant;
 import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/partage_bien.dart';
+import 'package:immobilier/features/immobilier/home_immobilier/ui/components/fiche_bien_commun.dart'
+    show SurTitre;
+import 'package:immobilier/models/media.dart';
 import 'package:immobilier/models/realestate.dart';
 import 'package:share_plus/share_plus.dart';
 
-const Color _vertWhatsApp = Color(0xFF25D366);
-const Color _bulleWhatsApp = Color(0xFFDCF8C6);
-
-/// Feuille « Partager les informations de l'appartement » : l'agent coche
-/// ce qu'il envoie, voit l'apercu du message, puis l'envoie.
+/// Feuille « Partager la fiche » : l'agent coche ce qu'il envoie, choisit
+/// ses photos, lit l'aperçu du message, puis l'envoie.
+///
+/// Le prix et le contact du propriétaire n'en font jamais partie : le prix
+/// se négocie de vive voix, le propriétaire est un tiers. La feuille le
+/// dit, pour qu'on ne le cherche pas.
 class FeuillePartageBien extends StatefulWidget {
   final Realestate bien;
 
@@ -34,10 +40,14 @@ class FeuillePartageBien extends StatefulWidget {
   State<FeuillePartageBien> createState() => _FeuillePartageBienState();
 }
 
+/// Le vert de la pastille « choisie » d'une vignette.
+const Color _vertCoche = vertAccueil;
+
 class _FeuillePartageBienState extends State<FeuillePartageBien> {
   static const String _clePreferences = 'partage_bien_options';
 
   late OptionsPartage _options;
+  late final List<Media> _medias;
   late final List<String> _photos;
 
   /// Indices des photos choisies, dans l'ordre d'envoi.
@@ -59,7 +69,8 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
   void initState() {
     super.initState();
     _options = _lireOptions();
-    _photos = PartageBien.photos(_bien);
+    _medias = PartageBien.medias(_bien);
+    _photos = _medias.map((m) => m.pleineTaille!).toList();
     // Toutes les photos sont proposees, dans la limite du maximum.
     for (var i = 0; i < _photos.length && i < PartageBien.maxImages; i++) {
       _selection.add(i);
@@ -82,17 +93,19 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
 
   void _sauverOptions() {
     try {
-      Dependencies.get<SharedPrefService>()
-          .putValue(_clePreferences, _options.enChaine());
+      Dependencies.get<SharedPrefService>().putValue(
+        _clePreferences,
+        _options.enChaine(),
+      );
     } catch (_) {
       // Sans consequence : les choix par defaut reviendront.
     }
   }
 
   String get _texte => PartageBien.construireTexte(
-        _bien,
-        options: _aCarte ? _options : _options.copyWith(carte: false),
-      );
+    _bien,
+    options: _aCarte ? _options : _options.copyWith(carte: false),
+  );
 
   void _basculerPhoto(int index) {
     setState(() {
@@ -109,9 +122,7 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
       if (_selection.isNotEmpty) {
         _selection.clear();
       } else {
-        for (var i = 0;
-            i < _photos.length && i < PartageBien.maxImages;
-            i++) {
+        for (var i = 0; i < _photos.length && i < PartageBien.maxImages; i++) {
           _selection.add(i);
         }
       }
@@ -141,22 +152,27 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
 
       fichiers = resultat.fichiers;
       if (resultat.echecs > 0) {
-        messenger.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 5),
-          content: Text(fichiers.isEmpty
-              ? "Aucune photo n'a pu être téléchargée"
-                  "${texte.isEmpty ? "." : " : seul le texte sera envoyé."}"
-              : "${resultat.echecs} photo${resultat.echecs > 1 ? 's' : ''} "
-                  "non téléchargée${resultat.echecs > 1 ? 's' : ''} : "
-                  "envoi des ${fichiers.length} autres."),
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 5),
+            content: Text(
+              fichiers.isEmpty
+                  ? "Aucune photo n'a pu être téléchargée"
+                        "${texte.isEmpty ? "." : " : seul le texte sera envoyé."}"
+                  : "${resultat.echecs} photo${resultat.echecs > 1 ? 's' : ''} "
+                        "non téléchargée${resultat.echecs > 1 ? 's' : ''} : "
+                        "envoi des ${fichiers.length} autres.",
+            ),
+          ),
+        );
       }
 
       if (fichiers.isEmpty && texte.isEmpty) {
         messenger.clearSnackBars();
         setState(() {
           _progression = null;
-          _alerte = "Aucune photo n'a pu être téléchargée. "
+          _alerte =
+              "Aucune photo n'a pu être téléchargée. "
               "Vérifiez la connexion et réessayez.";
         });
         return;
@@ -171,6 +187,8 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
       viaWhatsApp: viaWhatsApp,
     );
   }
+
+  // ── La feuille ──────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -189,18 +207,21 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
           child: Column(
             children: [
               _entete(),
-              const Divider(height: 1),
+              const Divider(height: 1, color: bordureAccueil),
               Expanded(
                 child: ListView(
                   controller: controller,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
                   children: [
-                    const _TitreSection("Informations à inclure"),
-                    ..._optionsTuiles(),
+                    const SurTitre('Informations à inclure'),
+                    const SizedBox(height: 8),
+                    ..._cases(),
+                    const SizedBox(height: 12),
+                    const _NoteConfidentielle(),
                     const SizedBox(height: 20),
-                    _sectionPhotos(),
+                    ..._sectionPhotos(),
                     const SizedBox(height: 20),
-                    _sectionApercu(),
+                    ..._sectionApercu(),
                   ],
                 ),
               ),
@@ -214,53 +235,55 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
 
   Widget _entete() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 8, 10),
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 12),
       child: Column(
         children: [
           Container(
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
+              color: bordureAccueil,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _vertWhatsApp.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const FaIcon(FontAwesomeIcons.whatsapp,
-                    color: _vertWhatsApp, size: 22),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      "Partager les informations de l'appartement",
+                      'Partager la fiche',
                       style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: texteAccueil,
+                      ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      _bien.title ?? "Bien immobilier",
+                      (_bien.title ?? '').trim().isEmpty
+                          ? 'Bien immobilier'
+                          : _bien.title!.trim(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600),
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: texteDouxAccueil,
+                      ),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: "Fermer",
-                onPressed: _enEnvoi ? null : () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: _enEnvoi ? null : () => Navigator.of(context).pop(),
+                customBorder: const CircleBorder(),
+                child: const CercleFlottant(
+                  taille: 36,
+                  enfant: Icon(Icons.close, size: 18, color: texteAccueil),
+                ),
               ),
             ],
           ),
@@ -269,182 +292,182 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
     );
   }
 
-  List<Widget> _optionsTuiles() {
-    final titre = _bien.title?.trim() ?? '';
+  // ── Informations à inclure ──────────────────────────────────────
+
+  /// Quatre cases, pas sept : « Nom et adresse » commande à la fois le
+  /// titre, la référence et l'adresse — trois lignes qui vont ensemble.
+  List<Widget> _cases() {
+    final titre = (_bien.title ?? '').trim();
     final adresse = PartageBien.adresseComplete(_bien);
     final description = _bien.description?.trim() ?? '';
     final caracteristiques = PartageBien.caracteristiques(_bien);
 
     return [
-      if (_aCarte)
-        _TuileOption(
-          emoji: "📍",
-          titre: "Localisation Google Maps",
-          sousTitre: "Lien vers la position du bien",
-          valeur: _options.carte,
-          onChanged: (v) =>
-              setState(() => _options = _options.copyWith(carte: v)),
-        ),
-      _TuileOption(
-        emoji: "🏠",
-        titre: "Nom / référence de l'appartement",
-        sousTitre: [
-          if (titre.isNotEmpty) titre,
-          if (_bien.id != null) "Réf. #${_bien.id}",
-        ].join(" · "),
+      _CaseAcocher(
+        libelle: 'Nom et adresse',
         valeur: _options.nom,
+        actif: titre.isNotEmpty || adresse.isNotEmpty,
         onChanged: (v) => setState(
-            () => _options = _options.copyWith(nom: v, reference: v)),
+          () => _options = _options.copyWith(
+            nom: v,
+            reference: v,
+            adresse: v && adresse.isNotEmpty,
+          ),
+        ),
       ),
-      _TuileOption(
-        emoji: "📌",
-        titre: "Adresse complète et résidence",
-        sousTitre: adresse.isEmpty
-            ? "Non renseignée"
-            : adresse.replaceAll("🏢 ", "").replaceAll("\n", " · "),
-        valeur: _options.adresse,
-        actif: adresse.isNotEmpty,
-        onChanged: (v) =>
-            setState(() => _options = _options.copyWith(adresse: v)),
-      ),
-      _TuileOption(
-        emoji: "📝",
-        titre: "Description",
-        sousTitre: description.isEmpty ? "Non renseignée" : description,
+      _CaseAcocher(
+        libelle: 'Description',
         valeur: _options.description,
         actif: description.isNotEmpty,
         onChanged: (v) =>
             setState(() => _options = _options.copyWith(description: v)),
       ),
-      _TuileOption(
-        emoji: "🛏️",
-        titre: "Caractéristiques",
-        sousTitre: caracteristiques.isEmpty
-            ? "Non renseignées"
-            : caracteristiques
-                .map((l) => l.replaceFirst(RegExp(r'^(• |✨ )'), ''))
-                .join(" · "),
+      _CaseAcocher(
+        libelle: 'Caractéristiques (surface, chambres…)',
         valeur: _options.caracteristiques,
         actif: caracteristiques.isNotEmpty,
-        onChanged: (v) => setState(
-            () => _options = _options.copyWith(caracteristiques: v)),
+        onChanged: (v) =>
+            setState(() => _options = _options.copyWith(caracteristiques: v)),
+      ),
+      _CaseAcocher(
+        libelle: 'Lien Google Maps',
+        valeur: _options.carte,
+        actif: _aCarte,
+        onChanged: (v) =>
+            setState(() => _options = _options.copyWith(carte: v)),
       ),
     ];
   }
 
-  Widget _sectionPhotos() {
+  // ── Photos ──────────────────────────────────────────────────────
+
+  List<Widget> _sectionPhotos() {
     final total = _photos.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: _TitreSection("📷 Photos")),
-            if (total > 0)
-              TextButton(
-                onPressed: _enEnvoi ? null : _basculerToutes,
-                child: Text(_selection.isNotEmpty
-                    ? "Aucune"
-                    : "Tout sélectionner"),
-              ),
-          ],
+    if (total == 0) {
+      return const [
+        SurTitre('Photos'),
+        SizedBox(height: 8),
+        Text(
+          'Aucune photo pour ce bien.',
+          style: TextStyle(fontSize: 13, color: texteDouxAccueil),
         ),
-        if (total == 0)
-          Text("Aucune photo pour ce bien.",
-              style: TextStyle(color: Colors.grey.shade600))
-        else ...[
-          Text(
-            "${_selection.length} sélectionnée${_selection.length > 1 ? 's' : ''}"
-            " sur $total · ${_auMaximum ? "maximum de ${PartageBien.maxImages} atteint" : "${PartageBien.maxImages} maximum"}",
-            style: TextStyle(
-              fontSize: 12.5,
-              color: _auMaximum ? Colors.orange.shade800 : Colors.grey.shade700,
+      ];
+    }
+
+    return [
+      Row(
+        children: [
+          Expanded(child: SurTitre('Photos · ${_selection.length} sur $total')),
+          TextButton(
+            onPressed: _enEnvoi ? null : _basculerToutes,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primaryColor,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              visualDensity: VisualDensity.compact,
             ),
-          ),
-          const SizedBox(height: 10),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: total,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-            ),
-            itemBuilder: (_, i) => _TuilePhoto(
-              url: _photos[i],
-              rang: _selection.indexOf(i) + 1,
-              onTap: _enEnvoi ? null : () => _basculerPhoto(i),
+            child: Text(
+              _selection.isNotEmpty ? 'Aucune' : 'Toutes',
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
+      ),
+      if (_auMaximum) ...[
+        const SizedBox(height: 2),
+        Text(
+          'Maximum de ${PartageBien.maxImages} photos atteint.',
+          style: const TextStyle(fontSize: 11.5, color: orangeAccueil),
+        ),
       ],
-    );
+      const SizedBox(height: 10),
+      SizedBox(
+        height: 72,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: total,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (_, i) => _Vignette(
+            url: _medias[i].vignette ?? _photos[i],
+            choisie: _selection.contains(i),
+            onTap: _enEnvoi ? null : () => _basculerPhoto(i),
+          ),
+        ),
+      ),
+    ];
   }
 
-  Widget _sectionApercu() {
+  // ── Aperçu ──────────────────────────────────────────────────────
+
+  List<Widget> _sectionApercu() {
     final texte = _texte;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: _TitreSection("Aperçu du message")),
-            if (texte.isNotEmpty)
-              TextButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: texte));
-                  if (!mounted) return;
-                  setState(() => _copie = true);
-                  Future.delayed(const Duration(seconds: 2), () {
-                    if (mounted) setState(() => _copie = false);
-                  });
-                },
-                icon: Icon(_copie ? Icons.check : Icons.copy_rounded,
-                    size: 18),
-                label: Text(_copie ? "Copié" : "Copier"),
+    return [
+      Row(
+        children: [
+          const Expanded(child: SurTitre('Aperçu du message')),
+          if (texte.isNotEmpty)
+            TextButton.icon(
+              onPressed: _copier,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primaryColor,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                visualDensity: VisualDensity.compact,
               ),
-          ],
-        ),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFECE5DD),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              decoration: BoxDecoration(
-                color: texte.isEmpty ? Colors.white : _bulleWhatsApp,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
+              icon: Icon(_copie ? Icons.check : Icons.copy_rounded, size: 15),
+              label: Text(
+                _copie ? 'Copié' : 'Copier',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              child: texte.isEmpty
-                  ? Text(
-                      _selection.isEmpty
-                          ? "Cochez au moins une information ou une photo."
-                          : "Seules les photos seront envoyées.",
-                      style: TextStyle(color: Colors.grey.shade600),
-                    )
-                  : Text.rich(
-                      _TexteWhatsApp.formater(texte),
-                      style: const TextStyle(
-                          fontSize: 14, height: 1.35, color: Colors.black87),
-                    ),
             ),
-          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F4F6),
+          border: Border.all(color: bordureAccueil),
+          borderRadius: BorderRadius.circular(rayonAccueil),
         ),
-      ],
-    );
+        child: texte.isEmpty
+            ? Text(
+                _selection.isEmpty
+                    ? 'Cochez au moins une information ou une photo.'
+                    : 'Seules les photos seront envoyées.',
+                style: const TextStyle(fontSize: 13, color: texteDouxAccueil),
+              )
+            : Text.rich(
+                _TexteWhatsApp.formater(texte),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: texteAccueil,
+                ),
+              ),
+      ),
+    ];
   }
+
+  Future<void> _copier() async {
+    await Clipboard.setData(ClipboardData(text: _texte));
+    if (!mounted) return;
+    setState(() => _copie = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copie = false);
+    });
+  }
+
+  // ── Envoi ───────────────────────────────────────────────────────
 
   Widget _barreEnvoi() {
     final aPhotos = _selection.isNotEmpty;
@@ -453,16 +476,14 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
 
     return Container(
       padding: EdgeInsets.fromLTRB(
-          16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
-      decoration: BoxDecoration(
+        16,
+        12,
+        16,
+        12 + MediaQuery.of(context).padding.bottom,
+      ),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        border: Border(top: BorderSide(color: bordureAccueil)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -471,14 +492,18 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
           if (_alerte != null) ...[
             Text(
               _alerte!,
-              style: TextStyle(fontSize: 13, color: Colors.red.shade700),
+              style: const TextStyle(fontSize: 12.5, color: rougeAccueil),
             ),
             const SizedBox(height: 8),
           ],
           if (progression != null) ...[
             Text(
-              "Téléchargement des photos… ${progression.$1}/${progression.$2}",
-              style: const TextStyle(fontSize: 13),
+              'Téléchargement des photos… ${progression.$1}/${progression.$2}',
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: texteDouxAccueil,
+                fontFeatures: chiffresTabulaires,
+              ),
             ),
             const SizedBox(height: 6),
             ClipRRect(
@@ -488,73 +513,75 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
                 value: progression.$2 == 0
                     ? null
                     : progression.$1 / progression.$2,
-                color: _vertWhatsApp,
-                backgroundColor: _vertWhatsApp.withValues(alpha: 0.15),
+                color: AppColors.primaryColor,
+                backgroundColor: AppColors.primaryColor.withValues(alpha: 0.15),
               ),
             ),
-            const SizedBox(height: 10),
-          ] else if (aPhotos && _texte.isNotEmpty) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.primaryColor.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      size: 18, color: AppColors.primaryColor),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "Le texte part avec les photos, en légende de la première "
-                      "(choisissez WhatsApp puis le contact). Il est aussi copié : "
-                      "collez-le si la messagerie ne l'affiche pas.",
-                      style: TextStyle(fontSize: 12.5),
+            const SizedBox(height: 12),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: possible
+                        ? () => _envoyer(viaWhatsApp: false)
+                        : null,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: texteAccueil,
+                      side: const BorderSide(color: bordureAccueil),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: const Icon(Icons.ios_share, size: 18),
+                    label: const Text(
+                      'Autres apps',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          SizedBox(
-            height: 50,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _vertWhatsApp,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: possible
+                        ? () => _envoyer(viaWhatsApp: true)
+                        : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: _enEnvoi
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.chat_bubble_outline, size: 18),
+                    label: const Text(
+                      'WhatsApp',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              onPressed:
-                  possible ? () => _envoyer(viaWhatsApp: true) : null,
-              icon: _enEnvoi
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const FaIcon(FontAwesomeIcons.whatsapp, size: 20),
-              label: const Text("Envoyer sur WhatsApp",
-                  style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 44,
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-              ),
-              onPressed:
-                  possible ? () => _envoyer(viaWhatsApp: false) : null,
-              icon: const Icon(Icons.share_outlined, size: 18),
-              label: const Text("Autres applications"),
-            ),
+            ],
           ),
         ],
       ),
@@ -562,35 +589,15 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
   }
 }
 
-class _TitreSection extends StatelessWidget {
-  final String texte;
-
-  const _TitreSection(this.texte);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        texte,
-        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
-      ),
-    );
-  }
-}
-
-class _TuileOption extends StatelessWidget {
-  final String emoji;
-  final String titre;
-  final String sousTitre;
+/// Une case à cocher carrée et son libellé, sur toute la largeur.
+class _CaseAcocher extends StatelessWidget {
+  final String libelle;
   final bool valeur;
   final bool actif;
   final ValueChanged<bool> onChanged;
 
-  const _TuileOption({
-    required this.emoji,
-    required this.titre,
-    required this.sousTitre,
+  const _CaseAcocher({
+    required this.libelle,
     required this.valeur,
     required this.onChanged,
     this.actif = true,
@@ -599,57 +606,42 @@ class _TuileOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final coche = actif && valeur;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: coche
-            ? AppColors.primaryColor.withValues(alpha: 0.06)
-            : Colors.grey.shade50,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: coche
-                ? AppColors.primaryColor.withValues(alpha: 0.5)
-                : Colors.grey.shade200,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: actif ? () => onChanged(!valeur) : null,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-            child: Opacity(
-              opacity: actif ? 1 : 0.5,
-              child: Row(
-                children: [
-                  Text(emoji, style: const TextStyle(fontSize: 20)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(titre,
-                            style: const TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w600)),
-                        if (sousTitre.isNotEmpty)
-                          Text(
-                            sousTitre,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                      ],
-                    ),
+    return InkWell(
+      onTap: actif ? () => onChanged(!valeur) : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Opacity(
+        opacity: actif ? 1 : .45,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: Checkbox(
+                  value: coche,
+                  activeColor: AppColors.primaryColor,
+                  side: const BorderSide(color: Color(0xFFC3CDD3), width: 1.4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
                   ),
-                  Checkbox(
-                    value: coche,
-                    activeColor: AppColors.primaryColor,
-                    onChanged: actif ? (v) => onChanged(v ?? false) : null,
-                  ),
-                ],
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                  onChanged: actif ? (v) => onChanged(v ?? false) : null,
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  libelle,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: texteAccueil,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -657,71 +649,109 @@ class _TuileOption extends StatelessWidget {
   }
 }
 
-class _TuilePhoto extends StatelessWidget {
-  final String url;
-
-  /// Position dans l'envoi, 0 si la photo n'est pas choisie.
-  final int rang;
-  final VoidCallback? onTap;
-
-  const _TuilePhoto({required this.url, required this.rang, this.onTap});
+/// La règle, écrite une fois pour toutes : le prix et le propriétaire
+/// restent à l'agence.
+class _NoteConfidentielle extends StatelessWidget {
+  const _NoteConfidentielle();
 
   @override
   Widget build(BuildContext context) {
-    final choisie = rang > 0;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F4F6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.lock_outline, size: 17, color: texteDouxAccueil),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Le prix et le contact du propriétaire ne sont jamais partagés.',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.3,
+                color: texteDouxAccueil,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Une vignette carrée de la rangée des photos.
+class _Vignette extends StatelessWidget {
+  final String url;
+  final bool choisie;
+  final VoidCallback? onTap;
+
+  const _Vignette({required this.url, required this.choisie, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: choisie ? _vertWhatsApp : Colors.transparent,
-            width: 3,
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(9),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              CachedNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => Container(color: Colors.grey.shade200),
-                errorWidget: (_, _, _) => Container(
-                  color: Colors.grey.shade200,
-                  child: const Icon(Icons.broken_image_outlined,
-                      color: Colors.grey),
+      child: SizedBox(
+        width: 72,
+        height: 72,
+        child: Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.none,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: choisie ? AppColors.primaryColor : bordureAccueil,
+                  width: choisie ? 2 : 1,
                 ),
               ),
-              if (!choisie)
-                Container(color: Colors.white.withValues(alpha: 0.35)),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CachedNetworkImage(
+                      imageUrl: url,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) =>
+                          const ColoredBox(color: Color(0xFFE7ECEF)),
+                      errorWidget: (_, __, ___) => const ColoredBox(
+                        color: Color(0xFFE7ECEF),
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          size: 20,
+                          color: Color(0xFFA9B6BD),
+                        ),
+                      ),
+                    ),
+                    if (!choisie)
+                      ColoredBox(color: Colors.white.withValues(alpha: .4)),
+                  ],
+                ),
+              ),
+            ),
+            if (choisie)
               Positioned(
-                top: 6,
-                right: 6,
+                top: -4,
+                right: -4,
                 child: Container(
-                  width: 24,
-                  height: 24,
+                  width: 20,
+                  height: 20,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
+                    color: _vertCoche,
                     shape: BoxShape.circle,
-                    color: choisie
-                        ? _vertWhatsApp
-                        : Colors.black.withValues(alpha: 0.25),
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: choisie
-                      ? Text("$rang",
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700))
-                      : null,
+                  child: const Icon(Icons.check, size: 11, color: Colors.white),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -739,10 +769,12 @@ class _TexteWhatsApp {
       if (m.start > debut) {
         morceaux.add(TextSpan(text: texte.substring(debut, m.start)));
       }
-      morceaux.add(TextSpan(
-        text: m.group(1),
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ));
+      morceaux.add(
+        TextSpan(
+          text: m.group(1),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      );
       debut = m.end;
     }
     if (debut < texte.length) {
