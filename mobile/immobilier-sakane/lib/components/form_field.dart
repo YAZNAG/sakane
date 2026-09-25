@@ -38,6 +38,13 @@ class MyFormField extends StatefulWidget {
 
   TextInputType inputType;
 
+  /// Un identifiant ne se laisse pas corriger par le clavier : ni
+  /// majuscule automatique, ni correction, ni suggestion. Les valeurs
+  /// par defaut reproduisent le comportement d'origine.
+  TextCapitalization textCapitalization;
+  bool autocorrect;
+  bool enableSuggestions;
+
   List<TextInputFormatter>? formatters;
 
   TextEditingController? controller;
@@ -78,6 +85,9 @@ class MyFormField extends StatefulWidget {
     this.formatters,
     this.onTap,
     this.isWithBorder = false,
+    this.textCapitalization = TextCapitalization.none,
+    this.autocorrect = true,
+    this.enableSuggestions = true,
   });
 
   @override
@@ -122,6 +132,9 @@ class _MyFormFieldState extends State<MyFormField> {
       onTap: widget.onTap,
       inputFormatters: widget.formatters,
       keyboardType: widget.inputType,
+      textCapitalization: widget.textCapitalization,
+      autocorrect: widget.autocorrect,
+      enableSuggestions: widget.enableSuggestions,
       readOnly: widget.readOnly,
       maxLength: widget.maxLenght,
       onChanged: onTextChange,

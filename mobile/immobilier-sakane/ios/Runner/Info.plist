@@ -61,5 +61,7 @@
 		<false/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSFaceIDUsageDescription</key>
+		<string>Face ID vous permet de vous reconnecter à l'application sans saisir votre mot de passe.</string>
 	</dict>
 </plist>

@@ -267,14 +267,38 @@ class ApiClient {
       if (estCoupureReseau(ex)) {
         throw NetworkConnectivityException();
       }
-      if ((ex.response?.statusCode ?? 0) == 401) {
-        throw UnAuthenticatedException();
+      final code = ex.response?.statusCode ?? 0;
+      // Le serveur dit lui-meme pourquoi il refuse. Son message vaut mieux
+      // qu'un texte generique, surtout depuis qu'un identifiant peut etre
+      // une adresse e-mail comme un numero de telephone.
+      if (code == 401 || code == 422) {
+        throw UnAuthenticatedException(_messageRefusConnexion(ex));
       }
-      if ((ex.response?.statusCode ?? 0) == 403) {
+      if (code == 403) {
         throw UnAuthorizedException();
       }
       rethrow;
     }
+  }
+
+  /// Le message de refus renvoye par le serveur, s'il en donne un.
+  String? _messageRefusConnexion(DioException ex) {
+    final donnees = ex.response?.data;
+    if (donnees is Map) {
+      final message = donnees['message'];
+      if (message is String && message.trim().isNotEmpty) return message.trim();
+      final erreurs = donnees['errors'];
+      if (erreurs is Map && erreurs.isNotEmpty) {
+        final premiere = erreurs.values.first;
+        if (premiere is List && premiere.isNotEmpty) {
+          return premiere.first.toString();
+        }
+        if (premiere is String && premiere.trim().isNotEmpty) {
+          return premiere.trim();
+        }
+      }
+    }
+    return null;
   }
 
   Future<Manager> me() async {

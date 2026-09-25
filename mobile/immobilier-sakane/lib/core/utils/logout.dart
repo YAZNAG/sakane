@@ -4,12 +4,21 @@ import '../../routes.dart';
 import '../dependencies/dependencies.dart';
 import '../offline/cache_lecture.dart';
 import '../offline/synchronisation.dart';
+import '../services/service_biometrie.dart';
 import '../services/shared_pref_service.dart';
 
 
 void logout(){
   SharedPrefService sharedPrefService=Dependencies.get<SharedPrefService>();
   sharedPrefService.removeRecord(SharedPrefService.token);
+  // Le compte reste dans la liste des comptes memorises : on revient vite
+  // dessus, sans retaper son adresse. Son jeton de deverrouillage, lui,
+  // disparait : une session fermee ne doit pas se rouvrir d'un doigt.
+  final identifiant =
+      sharedPrefService.getValue<String>(SharedPrefService.username, "");
+  if (identifiant.trim().isNotEmpty) {
+    ServiceBiometrie.instance.oublierJeton(identifiant);
+  }
   // Les donnees consultees ne restent pas visibles pour le compte suivant.
   // Les actions en attente, elles, sont conservees : elles partiront a la
   // prochaine connexion du meme compte.

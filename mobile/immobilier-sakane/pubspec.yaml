@@ -72,6 +72,12 @@ dependencies:
   flutter_pdfview: ^1.4.5
   package_info_plus: ^10.2.1
   file_picker: ^13.0.0
+  # Deverrouillage par empreinte ou par visage, et coffre de l'appareil
+  # pour y ranger le jeton de session (jamais le mot de passe).
+  local_auth: ^2.3.0
+  local_auth_android: ^1.0.52
+  local_auth_darwin: ^1.4.5
+  flutter_secure_storage: ^11.2.0
 
 
 
