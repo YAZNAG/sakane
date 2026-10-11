@@ -10,6 +10,7 @@ import 'package:immobilier/features/immobilier/add_modify_immobilier/bloc/add_mo
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/assistant_bien_commun.dart';
 import 'package:immobilier/models/media.dart';
 import 'package:immobilier/models/realestate.dart';
+import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/videos_bien.dart';
 import 'package:toastification/toastification.dart';
 
 /// Une photo du bien : déjà sur le serveur, ou choisie sur ce téléphone.
@@ -44,6 +45,7 @@ class _PropertyImagesState extends State<PropertyImages> {
   static const int _minimumPhotos = 2;
 
   List<_VignetteBien> _vignettes = [];
+  final List<File> _videos = [];
 
   /// Les photos distantes retirées : le serveur les effacera.
   List<int> _corbeille = [];
@@ -117,6 +119,18 @@ class _PropertyImagesState extends State<PropertyImages> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // La visite filmee, facultative.
+                  VideosBien(
+                    enLigne: getRealEstate().videos ?? const [],
+                    choisies: _videos,
+                    retirees: getRealEstate().trashVideos ?? const [],
+                    occupe: envoi,
+                    onAjouter: (fichiers) => setState(() => _videos.addAll(fichiers)),
+                    onEnlever: (fichier) => setState(() => _videos.remove(fichier)),
+                    onRetirerEnLigne: _retirerVideoEnLigne,
                   ),
                   const SizedBox(height: 20),
                   _recapitulatif(state),
@@ -503,6 +517,16 @@ class _PropertyImagesState extends State<PropertyImages> {
     }
     updateImages();
     widget.onFinish?.call();
+  }
+
+  /// Retire une video deja en ligne : elle part a la corbeille du bien, et
+  /// le serveur la supprimera a l'enregistrement.
+  void _retirerVideoEnLigne(Media media) {
+    if (media.id == null) return;
+    final realestate = getRealEstate();
+    final corbeille = realestate.trashVideos ?? [];
+    if (corbeille.contains(media.id)) return;
+    updateRealestate(realestate.copyWith(trashVideos: [...corbeille, media.id!]));
   }
 
   void updateRealestate(Realestate realestate) {

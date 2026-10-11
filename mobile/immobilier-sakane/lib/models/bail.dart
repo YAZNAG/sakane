@@ -282,6 +282,12 @@ class Bail {
   final String? compteurElecSortie;
   final String? remarques;
   final String? contratUrl;
+
+  /// L'exemplaire francais, quand il a ete demande une fois.
+  final String? contratFrUrl;
+
+  /// Le contrat revenu signe et legalise : ce que l'agence garde au dossier.
+  final List<PieceContratSigne> contratsSignes;
   final String? creePar;
   final String? creeLe;
   final List<Loyer>? loyers;
@@ -315,6 +321,8 @@ class Bail {
     this.compteurElecSortie,
     this.remarques,
     this.contratUrl,
+    this.contratFrUrl,
+    this.contratsSignes = const [],
     this.creePar,
     this.creeLe,
     this.loyers,
@@ -372,6 +380,10 @@ class Bail {
       compteurElecSortie: _texte(json['compteurElecSortie']),
       remarques: _texte(json['remarques']),
       contratUrl: _texte(json['contratUrl']),
+      contratFrUrl: _texte(json['contratFrUrl']),
+      contratsSignes: _liste(json['contratsSignes'])
+          .map(PieceContratSigne.fromJson)
+          .toList(),
       creePar: _texte(json['creePar']),
       creeLe: _texte(json['creeLe']),
       loyers: json['loyers'] is List ? _liste(json['loyers']).map(Loyer.fromJson).toList() : null,
@@ -561,5 +573,39 @@ class BienLongueDuree {
       loyerPropose: _montantOuNull(json['loyerPropose']),
       bail: bail == null ? null : BailDuBien.fromJson(bail),
     );
+  }
+}
+
+/// Une piece du contrat signe : le PDF legalise, ou la photo d'une page.
+class PieceContratSigne {
+  final int id;
+  final String nom;
+  final String url;
+  final int taille;
+  final bool pdf;
+  final String? ajouteLe;
+
+  const PieceContratSigne({
+    required this.id,
+    required this.nom,
+    required this.url,
+    this.taille = 0,
+    this.pdf = true,
+    this.ajouteLe,
+  });
+
+  factory PieceContratSigne.fromJson(Map<String, dynamic> json) => PieceContratSigne(
+        id: _entier(json['id']) ?? 0,
+        nom: _texte(json['nom']) ?? 'Contrat signé',
+        url: _texte(json['url']) ?? '',
+        taille: _entier(json['taille']) ?? 0,
+        pdf: json['pdf'] == true,
+        ajouteLe: _texte(json['ajouteLe']),
+      );
+
+  String get tailleLisible {
+    if (taille >= 1024 * 1024) return '${(taille / (1024 * 1024)).toStringAsFixed(1)} Mo';
+    if (taille >= 1024) return '${(taille / 1024).round()} Ko';
+    return '$taille o';
   }
 }

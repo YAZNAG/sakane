@@ -150,6 +150,7 @@ enum AppPermission {
   endLease('end_lease'), // Alwed seulement
   deleteLease('delete_lease'), // Alwed seulement
   collectRent('collect_rent'), // Alwed seulement
+  viewLeaseStats('view_lease_stats'), // Alwed et Sakane
   // Vente
   viewSales('view_sales'), // Alwed seulement
   updateSaleStatus('update_sale_status'), // Alwed seulement

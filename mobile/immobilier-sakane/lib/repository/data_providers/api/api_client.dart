@@ -72,6 +72,7 @@ import 'package:immobilier/core/dependencies/dependencies.dart';
 import 'package:immobilier/models/calendrier_bien.dart';
 import 'package:immobilier/models/airbnb.dart';
 import 'package:immobilier/models/bail.dart';
+import 'package:immobilier/models/statistiques_baux.dart';
 import 'package:immobilier/models/vente.dart';
 import 'package:immobilier/models/facture_reservation.dart';
 import 'package:immobilier/models/detail_reservation.dart';
@@ -4166,12 +4167,76 @@ class ApiClient {
     }
   }
 
-  Future<String> telechargerContratBail(int id) =>
-      _pdfBail('/baux/$id/contrat', 'bail_$id', "Le contrat n'a pas pu être préparé.");
+  /// Le contrat du bail, en arabe (« ar ») ou en francais (« fr »).
+  Future<String> telechargerContratBail(int id, {String langue = 'ar'}) => _pdfBail(
+        '/baux/$id/contrat?langue=$langue',
+        'bail_${id}_$langue',
+        "Le contrat n'a pas pu être préparé.",
+      );
 
-  Future<String?> envoyerContratBail(int id) async {
+  /// Telecharge une piece deja en ligne (contrat signe, photo) depuis son
+  /// adresse complete, pour la montrer ou l'enregistrer.
+  Future<String> telechargerPieceBail(String url, int id) async {
     try {
-      final reponse = await _dio.post('/baux/$id/envoyer-contrat');
+      final reponse = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
+      final dir = await getTemporaryDirectory();
+      final horodate = DateTime.now().millisecondsSinceEpoch;
+      final chemin = '${dir.path}${Platform.pathSeparator}piece_${id}_$horodate.pdf';
+      await File(chemin).writeAsBytes(reponse.data ?? const [], flush: true);
+      return chemin;
+    } on DioException catch (ex) {
+      throw _erreurBail(ex, "Le document n'a pas pu être téléchargé.");
+    }
+  }
+
+  /// Joint le contrat revenu signe et legalise ; rend le bail a jour.
+  Future<Bail> joindreContratSigneBail(int id, List<File> fichiers) async {
+    try {
+      final formulaire = FormData.fromMap({
+        'fichiers': [
+          for (final f in fichiers)
+            await MultipartFile.fromFile(f.path, filename: f.path.split(RegExp(r'[\\/]')).last),
+        ],
+      });
+      final reponse = await _dio.post('/baux/$id/contrat-signe', data: formulaire);
+      return Bail.fromJson(_donneesBail(reponse));
+    } on DioException catch (ex) {
+      throw _erreurBail(ex, "Le contrat signé n'a pas pu être joint.");
+    }
+  }
+
+  Future<Bail> supprimerContratSigneBail(int id, int mediaId) async {
+    try {
+      final reponse = await _dio.delete('/baux/$id/contrat-signe/$mediaId');
+      return Bail.fromJson(_donneesBail(reponse));
+    } on DioException catch (ex) {
+      throw _erreurBail(ex, "La pièce n'a pas pu être retirée.");
+    }
+  }
+
+  /// Les chiffres de la location longue duree sur une periode.
+  Future<StatistiquesBaux> statistiquesBaux({String? du, String? au, int? bien}) async {
+    try {
+      final reponse = await _dio.get('/baux/statistiques', queryParameters: {
+        if (du != null) 'du': du,
+        if (au != null) 'au': au,
+        if (bien != null) 'bien': bien,
+      });
+      return StatistiquesBaux.fromJson(_donneesBail(reponse));
+    } on DioException catch (ex) {
+      throw _erreurBail(ex, "Les statistiques n'ont pas pu être chargées.");
+    }
+  }
+
+  Future<String?> envoyerContratBail(int id, {String langue = 'ar'}) async {
+    try {
+      final reponse = await _dio.post('/baux/$id/envoyer-contrat', data: {'langue': langue});
       final data = reponse.data['data'];
       return data is Map ? data['contratUrl']?.toString() : null;
     } on DioException catch (ex) {

@@ -51,6 +51,7 @@ import 'package:immobilier/models/facture_reservation.dart';
 import 'package:immobilier/models/detail_reservation.dart';
 import 'package:immobilier/models/envoi_historique_syndic.dart';
 import 'package:immobilier/models/contrat_proprietaire.dart';
+import 'package:immobilier/models/statistiques_baux.dart';
 import 'package:immobilier/models/apercu_suppression.dart';
 import 'package:immobilier/models/calendrier_bien.dart';
 import 'package:immobilier/models/airbnb.dart';
@@ -911,9 +912,22 @@ Future<void> ouvrirCaisse({double? montant, bool reporter = false}) =>
   Future<void> supprimerBail(int id) => apiClient.supprimerBail(id);
 
   /// Chemin du PDF telecharge.
-  Future<String> telechargerContratBail(int id) => apiClient.telechargerContratBail(id);
+  Future<String> telechargerContratBail(int id, {String langue = 'ar'}) =>
+      apiClient.telechargerContratBail(id, langue: langue);
 
-  Future<String?> envoyerContratBail(int id) => apiClient.envoyerContratBail(id);
+  Future<String> telechargerPieceBail(String url, int id) => apiClient.telechargerPieceBail(url, id);
+
+  Future<Bail> joindreContratSigneBail(int id, List<File> fichiers) =>
+      apiClient.joindreContratSigneBail(id, fichiers);
+
+  Future<Bail> supprimerContratSigneBail(int id, int mediaId) =>
+      apiClient.supprimerContratSigneBail(id, mediaId);
+
+  Future<StatistiquesBaux> statistiquesBaux({String? du, String? au, int? bien}) =>
+      apiClient.statistiquesBaux(du: du, au: au, bien: bien);
+
+  Future<String?> envoyerContratBail(int id, {String langue = 'ar'}) =>
+      apiClient.envoyerContratBail(id, langue: langue);
 
   Future<Loyer> modifierMontantLoyer(int id, double montant) => apiClient.modifierMontantLoyer(id, montant);
 

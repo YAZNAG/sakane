@@ -10,6 +10,7 @@ import 'package:immobilier/core/constants/enums/app_status.dart';
 import 'package:immobilier/core/dependencies/dependencies.dart';
 import 'package:immobilier/features/baux/cubit/bail_detail_cubit.dart';
 import 'package:immobilier/features/baux/ui/components/baux_commun.dart';
+import 'package:immobilier/features/baux/ui/components/contrat_signe.dart';
 import 'package:immobilier/features/baux/ui/components/dialogues_bail.dart';
 import 'package:immobilier/features/baux/ui/components/feuille_loyer.dart';
 import 'package:immobilier/features/baux/ui/components/occupants_bail.dart';
@@ -55,8 +56,9 @@ class _BailDetailPageState extends State<BailDetailPage> {
         icon: const Icon(Icons.check_circle_outline, color: CouleursBail.paye, size: 40),
         title: const Text('Contrat créé', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
         content: const Text(
-          'Le contrat de location en arabe a été rempli automatiquement '
-          'avec le logement, le locataire et les conditions.',
+          'Le contrat de location a été rempli automatiquement avec le '
+          'logement, le locataire et les conditions. Il existe en arabe et en '
+          'français, sur une seule page.',
           textAlign: TextAlign.center,
         ),
         actions: [
@@ -71,10 +73,57 @@ class _BailDetailPageState extends State<BailDetailPage> {
       ),
     );
     if (voir != true || !mounted) return;
+    await _ouvrirContrat(_cubit.id);
+  }
+
+  /// Le contrat existe en deux exemplaires : l'arabe, qui est celui que l'on
+  /// signe, et le francais, pour le dossier et le proprietaire. On demande
+  /// lequel sortir plutot que de choisir a la place de l'agent.
+  Future<String?> _demanderLangue({required String titre}) {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 14),
+            Text(titre,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w800, color: CouleursBail.texte)),
+            const SizedBox(height: 10),
+            ListTile(
+              leading: const Icon(Icons.description_outlined, color: CouleursBail.teinte),
+              title: const Text('En arabe'),
+              subtitle: Text("L'exemplaire que l'on signe et fait légaliser",
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              onTap: () => Navigator.of(ctx).pop('ar'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.translate, color: CouleursBail.aPayer),
+              title: const Text('En français'),
+              subtitle: Text('Une copie pour le dossier et le propriétaire',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              onTap: () => Navigator.of(ctx).pop('fr'),
+            ),
+            const SizedBox(height: 6),
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _ouvrirContrat(int id) async {
+    final langue = await _demanderLangue(titre: 'Ouvrir le contrat');
+    if (langue == null || !mounted) return;
     await ouvrirPdfBail(
       context,
-      () => Dependencies.get<Repository>().telechargerContratBail(_cubit.id),
-      'Contrat de bail',
+      () => Dependencies.get<Repository>().telechargerContratBail(id, langue: langue),
+      langue == 'fr' ? 'Contrat de bail (français)' : 'Contrat de bail',
     );
   }
 
@@ -92,25 +141,25 @@ class _BailDetailPageState extends State<BailDetailPage> {
   Future<void> _action(_Action action, Bail bail) async {
     switch (action) {
       case _Action.contrat:
-        await ouvrirPdfBail(
-          context,
-          () => Dependencies.get<Repository>().telechargerContratBail(bail.id),
-          'Contrat de bail',
-        );
+        await _ouvrirContrat(bail.id);
       case _Action.envoyer:
         if ((bail.locataire.tel ?? '').isEmpty) {
           afficherMessage(context, "Le locataire n'a pas de numéro de téléphone.", erreur: true);
           return;
         }
+        final langue = await _demanderLangue(titre: 'Envoyer le contrat');
+        if (langue == null || !mounted) return;
         final ok = await confirmer(
           context,
           titre: 'Envoyer le contrat ?',
-          message: 'Le contrat de bail sera envoyé par WhatsApp à ${bail.locataire.nom} (${bail.locataire.tel}).',
+          message: 'Le contrat de bail '
+              '${langue == 'fr' ? 'en français' : 'en arabe'} sera envoyé par WhatsApp à '
+              '${bail.locataire.nom} (${bail.locataire.tel}).',
           action: 'Envoyer',
           couleur: CouleursBail.teinte,
         );
         if (!ok || !mounted) return;
-        _resultat(await _cubit.envoyerContrat(), 'Contrat envoyé.');
+        _resultat(await _cubit.envoyerContrat(langue: langue), 'Contrat envoyé.');
       case _Action.prolonger:
         final choix = await demanderProlongation(context, bail);
         if (choix == null || !mounted) return;
@@ -263,6 +312,7 @@ class _BailDetailPageState extends State<BailDetailPage> {
           _actions(bail, state.enCours),
           if (!bail.actif) ...[const SizedBox(height: 10), _fin(bail)],
           _occupants(bail),
+          _contratSigne(bail, state.enCours),
           _photos(bail),
           _infos(bail),
           TitreSection(
@@ -587,6 +637,21 @@ class _BailDetailPageState extends State<BailDetailPage> {
           ),
           BoutonsContact(tel: c.tel),
         ],
+      ),
+    );
+  }
+
+  /// Le contrat revenu signe : joint au dossier, consultable, telechargeable.
+  Widget _contratSigne(Bail b, bool enCours) {
+    if (b.contratsSignes.isEmpty && !peutModifierBail) return const SizedBox();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: SectionContratSigne(
+        bail: b,
+        enCours: enCours,
+        modifiable: peutModifierBail,
+        onJoindre: _cubit.joindreContratSigne,
+        onSupprimer: _cubit.supprimerContratSigne,
       ),
     );
   }

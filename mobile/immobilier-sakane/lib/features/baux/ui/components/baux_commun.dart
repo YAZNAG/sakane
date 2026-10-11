@@ -89,6 +89,9 @@ bool get peutSupprimerBail => _peut(AppPermission.deleteLease);
 /// Encaisser / annuler un loyer, envoyer une quittance.
 bool get peutEncaisserLoyers => _peut(AppPermission.collectRent);
 
+/// Voir les chiffres de la longue duree.
+bool get peutVoirStatistiquesBaux => _peut(AppPermission.viewLeaseStats);
+
 /// Le message a montrer pour une erreur venue du depot.
 String messageErreurBail(Object ex) {
   if (ex is NetworkConnectivityException) return AppStrings.checkConnectivity;

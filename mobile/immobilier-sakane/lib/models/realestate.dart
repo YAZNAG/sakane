@@ -50,6 +50,11 @@ class Realestate {
   List<CaracteristiqueLue>? caracteristiquesLues;
   Owner? owner;
   List<Media>? media;
+
+  /// Les visites filmees deja en ligne, celles qui partent, celles qu'on retire.
+  List<Media>? videos;
+  List<File>? videoFiles;
+  List<int>? trashVideos;
   List<int>? trashImages;
   List<File>? files;
   Status? status;
@@ -84,6 +89,9 @@ class Realestate {
     this.caracteristiquesLues,
     this.owner,
     this.media,
+    this.videos,
+    this.videoFiles,
+    this.trashVideos,
     this.trashImages,
     this.files,
     this.status,
@@ -211,6 +219,12 @@ class Realestate {
       media: json['media'] != null
           ? (json['media'] as List).map((e) => Media.fromJson(e)).toList()
           : null,
+      videos: json['videos'] != null
+          ? (json['videos'] as List)
+              .whereType<Map>()
+              .map((e) => Media.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : null,
       status: json['status']!=null?Status.fromJson(json["status"]):null,
         reservedDates: json["reservedDates"]!=null
             ?(json["reservedDates"] as List).map((e)=>ReservedDate.fromJson(e)).toList()
@@ -253,6 +267,15 @@ class Realestate {
     return mpfs;
   }
 
+  /// Les videos a envoyer, mises en forme pour le formulaire.
+  Future<List<MultipartFile>> _videosEnvoyees() async {
+    final envoi = <MultipartFile>[];
+    for (final f in videoFiles ?? const <File>[]) {
+      envoi.add(await MultipartFile.fromFile(f.path, filename: f.path.split(RegExp(r'[\\/]')).last));
+    }
+    return envoi;
+  }
+
   Future<Map<String, dynamic>> toJson()async{
     List<MultipartFile> mpfls=await convertFiles();
     return {
@@ -282,6 +305,8 @@ class Realestate {
           : jsonEncode(caracteristiques),
       'owner': owner?.id,
       'images[]':mpfls,
+      'videos[]': await _videosEnvoyees(),
+      'trashVideos[]': trashVideos ?? [],
       'trashImages[]':trashImages??[]
     };
   }
@@ -311,6 +336,9 @@ class Realestate {
     Map<String, dynamic>? caracteristiques,
     Owner? owner,
     List<Media>? media,
+    List<Media>? videos,
+    List<File>? videoFiles,
+    List<int>? trashVideos,
     List<int>? trashImages,
     List<File>? files,
     List<ReservedDate>? reservedDates,
@@ -342,6 +370,9 @@ class Realestate {
       caracteristiquesLues: this.caracteristiquesLues,
       owner: owner ?? this.owner,
       media: media ?? this.media,
+      videos: videos ?? this.videos,
+      videoFiles: videoFiles ?? this.videoFiles,
+      trashVideos: trashVideos ?? this.trashVideos,
       trashImages: trashImages??this.trashImages,
       files: files??this.files,
       reservedDates: reservedDates ?? this.reservedDates,

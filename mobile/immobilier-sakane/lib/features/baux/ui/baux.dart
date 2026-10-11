@@ -11,6 +11,7 @@ import 'package:immobilier/core/constants/app_strings.dart';
 import 'package:immobilier/core/constants/enums/app_status.dart';
 import 'package:immobilier/features/baux/cubit/baux_cubit.dart';
 import 'package:immobilier/features/baux/ui/components/baux_commun.dart';
+import 'package:immobilier/features/baux/ui/statistiques_baux.dart';
 import 'package:immobilier/features/caisses/ui/garantir_caisse.dart';
 import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
 import 'package:immobilier/models/bail.dart';
@@ -103,6 +104,16 @@ class _BauxPageState extends State<BauxPage> {
           elevation: 0,
           foregroundColor: Colors.white,
           backgroundColor: AppColors.primaryColor,
+          actions: [
+            if (peutVoirStatistiquesBaux)
+              IconButton(
+                tooltip: 'Statistiques',
+                icon: const Icon(Icons.insights_outlined, color: Colors.white),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => StatistiquesBauxPage.page()),
+                ),
+              ),
+          ],
           bottom: const TabBar(
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,

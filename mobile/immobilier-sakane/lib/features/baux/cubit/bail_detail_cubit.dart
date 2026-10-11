@@ -144,7 +144,15 @@ class BailDetailCubit extends Cubit<BailDetailState> {
     }
   }
 
-  Future<ResultatBail> envoyerContrat() => _operation((d) => d.envoyerContratBail(id));
+  Future<ResultatBail> envoyerContrat({String langue = 'ar'}) =>
+      _operation((d) => d.envoyerContratBail(id, langue: langue));
+
+  /// Joint le contrat signe et legalise ; rend l'erreur, ou null.
+  Future<String?> joindreContratSigne(List<File> fichiers) async =>
+      (await _operation((d) => d.joindreContratSigneBail(id, fichiers))).erreur;
+
+  Future<String?> supprimerContratSigne(int mediaId) async =>
+      (await _operation((d) => d.supprimerContratSigneBail(id, mediaId))).erreur;
 
   Future<ResultatBail> modifierMontant(int loyerId, double montant) =>
       _operation((d) => d.modifierMontantLoyer(loyerId, montant));
