@@ -500,7 +500,12 @@ class _LoginPageState extends State<LoginPage> {
     final compte = state.compte;
     final jeton = state.manager?.token ?? "";
     if (compte != null && jeton.isNotEmpty && state.parJeton != true) {
-      await _proposerBiometrie(compte, jeton);
+      try {
+        await _proposerBiometrie(compte, jeton);
+      } catch (e) {
+        // Coffre indisponible, capteur capricieux : on entre quand meme.
+        debugPrint('Biometrie non proposee : $e');
+      }
     }
     if (!mounted) return;
     showToast(

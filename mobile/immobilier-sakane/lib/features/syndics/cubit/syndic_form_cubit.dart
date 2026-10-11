@@ -65,6 +65,7 @@ class SyndicFormCubit extends Cubit<SyndicFormState> {
     required bool actif,
     String? notes,
     required List<int> biens,
+    int? groupe,
   }) async {
     emit(state.copyWith(saveStatus: AppStatus.loading));
     try {
@@ -75,6 +76,7 @@ class SyndicFormCubit extends Cubit<SyndicFormState> {
         actif: actif,
         notes: notes,
         biens: biens,
+        groupe: groupe,
       );
       if (isClosed) return;
       emit(state.copyWith(saveStatus: AppStatus.success, enregistre: syndic));

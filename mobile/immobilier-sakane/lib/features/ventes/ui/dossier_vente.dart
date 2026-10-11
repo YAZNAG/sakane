@@ -1,3 +1,4 @@
+import 'package:immobilier/features/immobilier/actions_bien.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:immobilier/components/error_widget.dart';
@@ -231,6 +232,14 @@ class _DossierVentePageState extends State<DossierVentePage> with SingleTickerPr
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          // Le bien lui-meme : le partager a un acheteur, ouvrir sa
+          // fiche, ou corriger ce qui y est ecrit.
+          BoutonsActionsBien(
+            bienId: b.id,
+            teinte: CouleursVente.teinte,
+            onRetour: () => _cubit.charger(silencieux: true),
           ),
           if (proprietaire != null && proprietaire.nom.isNotEmpty) ...[
             const SizedBox(height: 12),

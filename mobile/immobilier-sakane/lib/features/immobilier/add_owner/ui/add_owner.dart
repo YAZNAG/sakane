@@ -130,7 +130,7 @@ class _AddModifyOwnerPageState extends State<AddModifyOwnerPage> {
                   SizedBox(height: 16),
 
                   MyFormField(
-                    label: "Email ",
+                    label: "Email (optionnel)",
                     hint: "exemple@email.com",
                     controller: _emailController,
                     labelColor: Colors.black,

@@ -32,8 +32,14 @@ class OptionsPartage {
 
   final bool description;
 
-  /// Type, chambres, salles de bain, surface, etage et equipements.
+  /// Type, chambres, salles de bain, surface, etage, ce qui est propre au
+  /// type de bien, et les equipements.
   final bool caracteristiques;
+
+  /// Prix de vente, loyer mensuel ou prix par nuit, selon la transaction.
+  /// Decoche par defaut : une location de vacances se negocie de vive
+  /// voix, tandis qu'un bien a vendre s'annonce avec son prix.
+  final bool prix;
 
   const OptionsPartage({
     this.carte = true,
@@ -43,6 +49,7 @@ class OptionsPartage {
     this.adresse = false,
     this.description = true,
     this.caracteristiques = false,
+    this.prix = false,
   });
 
   /// Choix proposes a la premiere ouverture de la feuille de partage.
@@ -61,6 +68,7 @@ class OptionsPartage {
     bool? adresse,
     bool? description,
     bool? caracteristiques,
+    bool? prix,
   }) {
     return OptionsPartage(
       carte: carte ?? this.carte,
@@ -70,6 +78,7 @@ class OptionsPartage {
       adresse: adresse ?? this.adresse,
       description: description ?? this.description,
       caracteristiques: caracteristiques ?? this.caracteristiques,
+      prix: prix ?? this.prix,
     );
   }
 
@@ -82,6 +91,7 @@ class OptionsPartage {
     if (adresse) 'adresse',
     if (description) 'description',
     if (caracteristiques) 'caracteristiques',
+    if (prix) 'prix',
   ].join(',');
 
   factory OptionsPartage.depuisChaine(String valeur) {
@@ -94,6 +104,7 @@ class OptionsPartage {
       adresse: cles.contains('adresse'),
       description: cles.contains('description'),
       caracteristiques: cles.contains('caracteristiques'),
+      prix: cles.contains('prix'),
     );
   }
 }
@@ -301,6 +312,11 @@ class PartageBien {
       }
     }
 
+    if (o.prix) {
+      final ligne = prix(bien);
+      if (ligne.isNotEmpty) sections.add(ligne);
+    }
+
     if (description.isNotEmpty) {
       sections.add("$_enteteDescription$description");
     }
@@ -392,6 +408,12 @@ class PartageBien {
       lignes.add("• Étage : $niveau${total > 0 ? " / $total" : ""}");
     }
 
+    // Ce qui n'appartient qu'a ce type de bien, mis en mots par le
+    // serveur : salons, titre foncier, puits, facade...
+    for (final c in bien.caracteristiquesLues ?? const <CaracteristiqueLue>[]) {
+      lignes.add("\u2022 ${c.libelle} : ${c.valeur}");
+    }
+
     final equipements = (bien.features ?? [])
         .map((f) => f.name?.trim() ?? '')
         .where((n) => n.isNotEmpty)
@@ -401,6 +423,30 @@ class PartageBien {
     }
 
     return lignes;
+  }
+
+  /// « Prix de vente : 850 000 MAD », « Loyer mensuel », ou « Prix par
+  /// nuit » : le mot depend de ce que l'on fait du bien.
+  static String prix(Realestate bien) {
+    final montant = bien.price;
+    if (montant == null || montant <= 0) return '';
+
+    final entier = montant.toDouble() == montant.toInt().toDouble();
+    final chiffres = entier ? montant.toInt().toString() : montant.toString();
+    final tampon = StringBuffer();
+    for (var i = 0; i < chiffres.length; i++) {
+      if (i > 0 && (chiffres.length - i) % 3 == 0) tampon.write(' ');
+      tampon.write(chiffres[i]);
+    }
+
+    final libelle = switch (bien.typeTransaction?.value) {
+      'selle' => 'Prix de vente',
+      'rent-long' => 'Loyer mensuel',
+      'rent-short' => 'Prix par nuit',
+      _ => 'Prix',
+    };
+
+    return "\u{1F4B0} *$libelle* : $tampon MAD";
   }
 
   /// Lien vers la position sur la carte, ouvrable depuis la messagerie.

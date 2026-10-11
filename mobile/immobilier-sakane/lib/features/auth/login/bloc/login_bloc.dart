@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:bloc/bloc.dart';
 import 'package:immobilier/core/constants/app_strings.dart';
 import 'package:immobilier/core/dependencies/dependencies.dart';
@@ -34,22 +36,37 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       // adresse e-mail comme un numero de telephone, sous n'importe quel
       // format, et se debrouille avec les neuf derniers chiffres.
       Manager manager=await repository.login(event.manager);
+      final identifiant=(event.manager.email ?? "").trim();
+      // Le serveur a dit oui : a partir d'ici, plus rien ne doit renvoyer
+      // l'utilisateur au formulaire. Les etapes qui suivent sont utiles
+      // mais secondaires ; chacune echoue dans son coin s'il le faut.
       Dependencies.put(manager);
       SharedPrefService sharedPrefService=Dependencies.get<SharedPrefService>();
-      sharedPrefService.putValue(SharedPrefService.token, manager.token);
-      final identifiant=(event.manager.email ?? "").trim();
+      sharedPrefService.putValue(SharedPrefService.token, manager.token ?? "");
       // Le dernier identifiant utilise sert a la deconnexion, qui doit
       // savoir de quel compte effacer le jeton de deverrouillage.
       sharedPrefService.putValue(SharedPrefService.username, identifiant);
-      // Le mot de passe n'est plus garde : la ou il l'etait, il est efface.
-      sharedPrefService.removeRecord(SharedPrefService.password);
-      final compte=_memoriser(identifiant, manager);
-      ApiClient apiClient=ApiClient(baseUrl: baseUrl,token: manager.token,apiAppsVersion: baseUrlApiVersion);
-      Repository newRepo=Repository(apiClient: apiClient);
-      Dependencies.put(newRepo);
-      // La synchronisation envoie desormais avec cette session, et les
-      // actions de ce compte en attente de reconnexion repartent.
-      Synchronisation.instance.apresConnexion(apiClient.dio, managerId: manager.id, jeton: manager.token);
+
+      CompteMemorise? compte;
+      try {
+        // Le mot de passe n'est plus garde : la ou il l'etait, il est efface.
+        sharedPrefService.removeRecord(SharedPrefService.password);
+        compte=_memoriser(identifiant, manager);
+      } catch (e) {
+        // Un compte non memorise ne coute qu'un formulaire a remplir la
+        // prochaine fois : ce n'est pas une raison pour refuser l'entree.
+        debugPrint('Connexion : compte non memorise ($e)');
+      }
+      try {
+        ApiClient apiClient=ApiClient(baseUrl: baseUrl,token: manager.token,apiAppsVersion: baseUrlApiVersion);
+        Repository newRepo=Repository(apiClient: apiClient);
+        Dependencies.put(newRepo);
+        // La synchronisation envoie desormais avec cette session, et les
+        // actions de ce compte en attente de reconnexion repartent.
+        Synchronisation.instance.apresConnexion(apiClient.dio, managerId: manager.id, jeton: manager.token);
+      } catch (e) {
+        debugPrint('Connexion : synchronisation differee ($e)');
+      }
       emit(state.copyWith(loginStatus: AppStatus.success,manager: manager,compte: compte));
     }on NetworkConnectivityException catch(_){
       emit(state.copyWith(loginStatus: AppStatus.error,error: AppStrings.checkConnectivity));
@@ -57,7 +74,10 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       // Le serveur sait mieux que l'application pourquoi il refuse :
       // identifiant inconnu, mot de passe faux, compte desactive.
       emit(state.copyWith(loginStatus: AppStatus.error,error: ex.message ?? AppStrings.invalidCredential));
-    }catch(_){
+    }catch(e){
+      // La connexion elle-meme a echoue : le serveur n'a pas repondu, ou
+      // sa reponse etait illisible.
+      debugPrint('Connexion refusee : $e');
       emit(state.copyWith(loginStatus: AppStatus.error,error: AppStrings.error));
     }
   }

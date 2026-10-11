@@ -1,3 +1,4 @@
+import 'package:immobilier/models/groupe_whatsapp.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
@@ -53,11 +54,28 @@ class _DialogueSyndicState extends State<_DialogueSyndic> {
   bool _enCours = false;
   String? _erreur;
 
+  /// Le groupe WhatsApp choisi ; null pour envoyer au numero.
+  int? _groupe;
+
+  /// Les groupes enregistres. Leur absence ne gene pas : il reste le numero.
+  List<GroupeWhatsapp> _groupes = const [];
+
   @override
   void initState() {
     super.initState();
     _telephone = TextEditingController(text: (widget.reglages['telephone'] ?? '').toString());
     _message = TextEditingController(text: (widget.reglages['message'] ?? '').toString());
+    _chargerGroupes();
+  }
+
+  Future<void> _chargerGroupes() async {
+    try {
+      final donnees =
+          await Dependencies.get<Repository>().groupesWhatsapp(sansWhatsapp: true);
+      if (mounted) setState(() => _groupes = donnees.actifs);
+    } catch (_) {
+      // Sans la liste, l'envoi se fait au numero, comme avant.
+    }
   }
 
   @override
@@ -81,7 +99,7 @@ class _DialogueSyndicState extends State<_DialogueSyndic> {
 
   Future<void> _envoyer() async {
     final tel = _telephone.text.replaceAll(RegExp(r'\D'), '');
-    if (tel.length < 10 || tel.startsWith('0')) {
+    if (_groupe == null && (tel.length < 10 || tel.startsWith('0'))) {
       setState(() => _erreur = 'Écrivez le numéro au format international, par exemple 212612345678.');
       return;
     }
@@ -97,11 +115,21 @@ class _DialogueSyndicState extends State<_DialogueSyndic> {
     try {
       final envoyeA = await Dependencies.get<Repository>().partagerContratSyndic(
         widget.booking.id!,
-        telephone: tel,
+        telephone: _groupe == null ? tel : null,
+        groupe: _groupe,
         message: _message.text,
-        enregistrer: _garder,
+        enregistrer: _garder && _groupe == null,
       );
-      if (mounted) Navigator.of(context).pop(envoyeA);
+      if (mounted) {
+        final nom = _groupe == null
+            ? envoyeA
+            : _groupes
+                .firstWhere((g) => g.id == _groupe,
+                    orElse: () => GroupeWhatsapp(
+                        id: _groupe!, nom: 'groupe', jid: ''))
+                .nom;
+        Navigator.of(context).pop(nom);
+      }
     } catch (ex) {
       if (mounted) {
         setState(() {
@@ -141,6 +169,39 @@ class _DialogueSyndicState extends State<_DialogueSyndic> {
               Text('Contrat public de « $bien »',
                   style: const TextStyle(fontSize: 12.5, color: Color(0xFF6B7B84))),
             const SizedBox(height: 12),
+            // Un groupe touche tous ses membres ; le numero n'en touche qu'un.
+            if (_groupes.isNotEmpty) ...[
+              DropdownButtonFormField<int?>(
+                initialValue: _groupe,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Destinataire',
+                  prefixIcon: const Icon(Icons.groups_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Au numéro du syndic',
+                        style: TextStyle(fontSize: 14, color: Colors.black87)),
+                  ),
+                  for (final g in _groupes)
+                    DropdownMenuItem<int?>(
+                      value: g.id,
+                      child: Text('Groupe : ${g.nom}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                    ),
+                ],
+                onChanged: (v) => setState(() {
+                  _groupe = v;
+                  _erreur = null;
+                }),
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (_groupe == null)
             TextField(
               controller: _telephone,
               keyboardType: TextInputType.phone,
@@ -182,6 +243,7 @@ class _DialogueSyndicState extends State<_DialogueSyndic> {
                     .toList(),
               ),
             ],
+            if (_groupe == null)
             CheckboxListTile(
               value: _garder,
               contentPadding: EdgeInsets.zero,

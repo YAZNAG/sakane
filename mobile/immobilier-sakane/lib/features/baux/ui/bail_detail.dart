@@ -1,3 +1,4 @@
+import 'package:immobilier/features/immobilier/actions_bien.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -323,6 +324,13 @@ class _BailDetailPageState extends State<BailDetailPage> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          // Le logement : le partager, ouvrir sa fiche, la corriger.
+          BoutonsActionsBien(
+            bienId: b.bien.id,
+            teinte: CouleursBail.teinte,
+            onRetour: () => _cubit.charger(silencieux: true),
           ),
           const Divider(height: 22),
           Row(

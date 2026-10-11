@@ -10,6 +10,7 @@ import 'package:immobilier/models/address.dart';
 import 'package:immobilier/models/city.dart';
 import 'package:immobilier/models/dossier.dart';
 import 'package:immobilier/models/feature.dart';
+import 'package:immobilier/models/formulaire_bien.dart';
 import 'package:immobilier/models/owner.dart';
 import 'package:immobilier/models/realestate.dart';
 import 'package:immobilier/models/region.dart';
@@ -90,8 +91,16 @@ class AddModifyImmBloc extends Bloc<AddModifyImmEvent, AddModifyImmState> {
       // Un proprietaire absent de la liste (cree avec un mandat) doit y figurer.
       final owner = nouveau?.owner;
       final listeOwners = owner != null && !owners.contains(owner) ? [...owners, owner] : owners;
+      // Le catalogue des types et des equipements : son absence ne doit
+      // pas empecher la saisie, le formulaire s'en passe.
+      FormulaireBien? formulaire;
+      try {
+        formulaire = await repository.formulaireBien();
+      } catch (_) {}
+
       emit(state.copyWith(
         fetchStatus: AppStatus.success,
+        formulaire: formulaire,
         etats: result[0] as List<Etat>,
         categories: result[1] as List<Category>,
         typeTransaction: result[2] as List<TypeTransaction>,

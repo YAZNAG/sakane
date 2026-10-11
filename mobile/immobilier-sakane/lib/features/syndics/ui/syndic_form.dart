@@ -1,3 +1,6 @@
+import 'package:immobilier/repository/repository.dart';
+import 'package:immobilier/models/groupe_whatsapp.dart';
+import 'package:immobilier/core/dependencies/dependencies.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -32,6 +35,13 @@ class _SyndicFormPageState extends State<SyndicFormPage> {
   late final TextEditingController _notes;
   final TextEditingController _recherche = TextEditingController();
   late bool _actif;
+
+  /// Le groupe WhatsApp ou ce syndic recoit ; null pour son numero.
+  int? _groupe;
+
+  /// Les groupes enregistres, charges a l'ouverture. Leur absence ne bloque
+  /// pas la saisie : le syndic garde alors son numero.
+  List<GroupeWhatsapp> _groupes = const [];
   late final Set<int> _choisis;
   String _texte = '';
   String? _erreurServeur;
@@ -46,6 +56,8 @@ class _SyndicFormPageState extends State<SyndicFormPage> {
     _telephone = TextEditingController(text: s?.telephone ?? '');
     _notes = TextEditingController(text: s?.notes ?? '');
     _actif = s?.actif ?? true;
+    _groupe = s?.groupe?.id;
+    _chargerGroupes();
     _choisis = {...?s?.biens.map((b) => b.id)};
     _recherche.addListener(() {
       if (_recherche.text != _texte) setState(() => _texte = _recherche.text);
@@ -68,6 +80,22 @@ class _SyndicFormPageState extends State<SyndicFormPage> {
       .map((s) => s.nom)
       .toList();
 
+  Future<void> _chargerGroupes() async {
+    try {
+      final donnees = await Dependencies.get<Repository>().groupesWhatsapp(sansWhatsapp: true);
+      if (!mounted) return;
+      setState(() {
+        _groupes = donnees.actifs;
+        // Un groupe retire entre-temps ne reste pas choisi.
+        if (_groupe != null && !_groupes.any((g) => g.id == _groupe)) {
+          _groupe = null;
+        }
+      });
+    } catch (_) {
+      // Sans la liste, le syndic recoit simplement sur son numero.
+    }
+  }
+
   void _enregistrer() {
     FocusScope.of(context).unfocus();
     setState(() => _erreurServeur = null);
@@ -80,6 +108,7 @@ class _SyndicFormPageState extends State<SyndicFormPage> {
           actif: _actif,
           notes: notes.isEmpty ? null : notes,
           biens: _choisis.toList(),
+          groupe: _groupe,
         );
   }
 
@@ -204,6 +233,46 @@ class _SyndicFormPageState extends State<SyndicFormPage> {
                     ),
                   ),
                 ),
+                if (_groupes.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade400),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButtonFormField<int?>(
+                        initialValue: _groupe,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          labelText: 'Envoyer dans un groupe WhatsApp',
+                          helperText: 'Le contrat part alors dans le groupe, et non au numéro.',
+                          helperMaxLines: 2,
+                          icon: Icon(Icons.groups_outlined),
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('Au numéro du syndic',
+                                style: TextStyle(fontSize: 14, color: Colors.black87)),
+                          ),
+                          for (final g in _groupes)
+                            DropdownMenuItem<int?>(
+                              value: g.id,
+                              child: Text(g.nom,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                            ),
+                        ],
+                        onChanged: (v) => setState(() => _groupe = v),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _notes,

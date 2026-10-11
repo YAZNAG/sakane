@@ -1,4 +1,9 @@
 import 'package:immobilier/models/bien_desactive.dart';
+import 'package:immobilier/models/activite_agents.dart';
+import 'package:immobilier/models/groupe_whatsapp.dart';
+import 'package:immobilier/models/journal_nettoyage.dart';
+import 'package:immobilier/models/charge_fixe.dart';
+import 'package:immobilier/models/formulaire_bien.dart';
 import 'package:immobilier/models/reception_whatsapp.dart';
 import 'package:immobilier/models/module_accueil.dart';
 import 'package:immobilier/models/categories_immobilier.dart';
@@ -286,7 +291,9 @@ class ApiClient {
     final donnees = ex.response?.data;
     if (donnees is Map) {
       final message = donnees['message'];
-      if (message is String && message.trim().isNotEmpty) return message.trim();
+      // Un message ecrit pour un humain est affiche tel quel ; un code
+      // technique comme « invalid-credential » ne dit rien a personne.
+      if (_lisible(message)) return (message as String).trim();
       final erreurs = donnees['errors'];
       if (erreurs is Map && erreurs.isNotEmpty) {
         final premiere = erreurs.values.first;
@@ -299,6 +306,17 @@ class ApiClient {
       }
     }
     return null;
+  }
+
+
+  /// Vrai si le serveur a repondu par une phrase, pas par un code technique.
+  bool _lisible(dynamic message) {
+    if (message is! String) return false;
+    final texte = message.trim();
+    if (texte.isEmpty) return false;
+    if (texte.contains(' ')) return true;
+    // Un seul mot : c'est un code (invalid-credential, forbidden, error...).
+    return false;
   }
 
   Future<Manager> me() async {
@@ -2936,6 +2954,76 @@ class ApiClient {
     return liste.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  // ================= Groupes WhatsApp =================
+
+  /// Les groupes enregistres, et ceux que le numero de l'agence voit sur
+  /// WhatsApp sans qu'ils le soient encore.
+  Future<GroupesWhatsapp> groupesWhatsapp({bool sansWhatsapp = false}) async {
+    try {
+      final reponse = await _dio.get('/groupes-whatsapp',
+          queryParameters: {if (sansWhatsapp) 'sansWhatsapp': 1});
+      return GroupesWhatsapp.fromJson(reponse.data);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(ex, "Les groupes n'ont pas pu être chargés."));
+    }
+  }
+
+  /// Enregistre un groupe : choisi dans la liste (jid), ou designe par son
+  /// lien d'invitation — le numero de l'agence le rejoint alors.
+  Future<GroupeWhatsapp> ajouterGroupeWhatsapp(
+      {String? jid, String? nom, String? lien}) async {
+    try {
+      final reponse = await _dio.post('/groupes-whatsapp', data: {
+        if (jid != null && jid.isNotEmpty) 'jid': jid,
+        if (nom != null && nom.isNotEmpty) 'nom': nom,
+        if (lien != null && lien.isNotEmpty) 'lien': lien,
+      });
+      return GroupeWhatsapp.fromJson(
+          Map<String, dynamic>.from(reponse.data['data'] as Map));
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(ex, "Le groupe n'a pas pu être ajouté."));
+    }
+  }
+
+  Future<GroupeWhatsapp> modifierGroupeWhatsapp(int id,
+      {String? nom, bool? actif}) async {
+    try {
+      final reponse = await _dio.put('/groupes-whatsapp/$id', data: {
+        if (nom != null) 'nom': nom,
+        if (actif != null) 'actif': actif,
+      });
+      return GroupeWhatsapp.fromJson(
+          Map<String, dynamic>.from(reponse.data['data'] as Map));
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(ex, "Le groupe n'a pas pu être modifié."));
+    }
+  }
+
+  /// Le groupe est-il toujours joignable, et combien de membres a-t-il ?
+  Future<GroupeWhatsapp> verifierGroupeWhatsapp(int id) async {
+    try {
+      final reponse = await _dio.post('/groupes-whatsapp/$id/verifier');
+      return GroupeWhatsapp.fromJson(
+          Map<String, dynamic>.from(reponse.data['data'] as Map));
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(ex, "Le groupe n'a pas pu être vérifié."));
+    }
+  }
+
+  /// Retire le groupe. Les syndics qui s'en servaient repassent a leur numero.
+  Future<void> supprimerGroupeWhatsapp(int id) async {
+    try {
+      await _dio.delete('/groupes-whatsapp/$id');
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(ex, "Le groupe n'a pas pu être retiré."));
+    }
+  }
+
   /// Le numero et le message par defaut du syndic.
   Future<Map<String, dynamic>> reglagesSyndic({int? bookingId}) async {
     final reponse = await _dio.get('/reglages/syndic',
@@ -2943,16 +3031,18 @@ class ApiClient {
     return Map<String, dynamic>.from(reponse.data['data'] as Map);
   }
 
-  /// Envoie le contrat public au syndic ; renvoie le numero utilise.
+  /// Envoie le contrat public au syndic : a son numero, ou dans un groupe
+  /// WhatsApp. Renvoie le destinataire retenu.
   Future<String> partagerContratSyndic(int bookingId,
-      {required String telephone, required String message, bool enregistrer = false}) async {
+      {String? telephone, int? groupe, required String message, bool enregistrer = false}) async {
     try {
       final reponse = await _dio.post('/bookings/$bookingId/partager-syndic', data: {
-        'telephone': telephone,
+        if (groupe == null) 'telephone': telephone,
+        if (groupe != null) 'groupe': groupe,
         'message': message,
         'enregistrer': enregistrer,
       });
-      return (reponse.data['data']?['envoyeA'] ?? telephone).toString();
+      return (reponse.data['data']?['envoyeA'] ?? telephone ?? '').toString();
     } on DioException catch (ex) {
       throw Exception(messageServeur(ex, "L'envoi au syndic a échoué."));
     }
@@ -3026,6 +3116,7 @@ class ApiClient {
     bool actif = true,
     String? notes,
     required List<int> biens,
+    int? groupe,
   }) async {
     final corps = {
       'nom': nom,
@@ -3033,6 +3124,8 @@ class ApiClient {
       'actif': actif,
       'notes': notes,
       'biens': biens,
+      // null retire le groupe : le syndic revient a son numero.
+      'groupe': groupe,
     };
     try {
       final reponse = id == null
@@ -4483,6 +4576,161 @@ class ApiClient {
     } on DioException catch (ex) {
       if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
       throw Exception(messageServeur(ex, "La liste des biens désactivés n'a pas pu être chargée."));
+    }
+  }
+
+  // ================= Activité de l'équipe =================
+
+  /// L'engagement de chaque agent sur une période.
+  /// Droit « view_agent_activity » ; le serveur répond 403 sinon.
+  ///
+  /// [groupe] vaut « jour », « semaine » ou « mois » : c'est la largeur
+  /// des tranches de la série du graphique.
+  Future<ActiviteAgents> activiteAgents({
+    required String du,
+    required String au,
+    String groupe = 'jour',
+  }) async {
+    try {
+      final reponse = await _dio.get('/activite/agents', queryParameters: {
+        'du': du,
+        'au': au,
+        'groupe': groupe,
+      });
+      return ActiviteAgents.fromJson(reponse.data);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(
+          messageServeur(ex, "L'activité des agents n'a pas pu être chargée."));
+    }
+  }
+
+  /// L'historique des appartements nettoyés, jour par jour.
+  /// Droit « view_cleaning_log » ; le serveur répond 403 sinon.
+  Future<JournalNettoyage> journalNettoyage({
+    required String du,
+    required String au,
+    int? bien,
+    int? agent,
+    String? recherche,
+  }) async {
+    try {
+      final reponse = await _dio.get('/activite/nettoyages', queryParameters: {
+        'du': du,
+        'au': au,
+        if (bien != null) 'bien': bien,
+        if (agent != null) 'agent': agent,
+        if (recherche != null && recherche.isNotEmpty) 'recherche': recherche,
+      });
+      return JournalNettoyage.fromJson(reponse.data);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "Le journal de nettoyage n'a pas pu être chargé."));
+    }
+  }
+
+  // ================= Charges fixes =================
+
+  /// Les charges fixes de la periode, rangees par famille, et les
+  /// echeances qui les ramenent chaque mois.
+  /// Droit « view_fixed_charges » ; le serveur repond 403 sinon.
+  Future<ChargesFixes> chargesFixes({
+    required String du,
+    required String au,
+    String? categorie,
+  }) async {
+    try {
+      final reponse = await _dio.get('/charges-fixes', queryParameters: {
+        'du': du,
+        'au': au,
+        if (categorie != null && categorie.isNotEmpty) 'categorie': categorie,
+      });
+      return ChargesFixes.fromJson(reponse.data);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "Les charges fixes n'ont pas pu être chargées."));
+    }
+  }
+
+  /// Saisit une charge fixe, et pose son echeance mensuelle si elle se
+  /// repete. Un justificatif peut l'accompagner.
+  Future<Charge> ajouterChargeFixe(SaisieChargeFixe saisie, {File? document}) async {
+    try {
+      final corps = saisie.enCorps();
+      final form = FormData.fromMap({
+        ...corps,
+        if (document != null)
+          'document': await MultipartFile.fromFile(document.path),
+      });
+      final reponse = await _dio.post('/charges-fixes', data: form);
+      return Charge.fromJson(reponse.data['data']);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "La charge fixe n'a pas pu être enregistrée."));
+    }
+  }
+
+  /// Change une charge fixe : son nom, son montant, sa famille, son bien.
+  Future<Charge> modifierChargeFixe(int id, SaisieChargeFixe saisie) async {
+    try {
+      final reponse = await _dio.put('/charges-fixes/$id',
+          data: saisie.enCorps(avecRepetition: false));
+      return Charge.fromJson(reponse.data['data']);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "La charge fixe n'a pas pu être modifiée."));
+    }
+  }
+
+  /// Change une echeance mensuelle : montant, jour du mois, famille.
+  Future<void> modifierRecurrenceCharge(
+    int id, {
+    String? nom,
+    double? montant,
+    int? jour,
+    String? categorie,
+    String? categorieLibelle,
+  }) async {
+    try {
+      await _dio.put('/charges-fixes/recurrences/$id', data: {
+        if (nom != null) 'nom': nom,
+        if (montant != null) 'amount': montant,
+        if (jour != null) 'jour': jour,
+        if (categorie != null) 'categorie': categorie,
+        if (categorieLibelle != null) 'categorieLibelle': categorieLibelle,
+      });
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "L'échéance n'a pas pu être modifiée."));
+    }
+  }
+
+  /// Arrete la repetition. Les charges deja creees restent.
+  Future<void> arreterRecurrenceCharge(int id) async {
+    try {
+      await _dio.delete('/charges-fixes/recurrences/$id');
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "La répétition n'a pas pu être arrêtée."));
+    }
+  }
+
+  /// Ce que le formulaire d'ajout d'un bien doit savoir : les types de
+  /// biens et leurs caracteristiques propres, les equipements ranges.
+  Future<FormulaireBien> formulaireBien() async {
+    try {
+      final reponse = await _dio.get('/formulaire-bien');
+      return FormulaireBien.fromJson(reponse.data);
+    } on DioException catch (ex) {
+      if ((ex.response?.statusCode ?? 0) == 401) throw UnAuthenticatedException();
+      throw Exception(messageServeur(
+          ex, "Le formulaire n'a pas pu être préparé."));
     }
   }
 

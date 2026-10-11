@@ -197,6 +197,22 @@ const List<_Module> _modules = [
     permission: AppPermission.exportReservations,
   ),
   _Module(
+    titre: 'Activité des agents',
+    icone: FontAwesomeIcons.chartColumn,
+    fond: Color(0xFFE8F2F5),
+    teinte: Color(0xFF2A7189),
+    route: Routes.activiteAgents,
+    permission: AppPermission.viewAgentActivity,
+  ),
+  _Module(
+    titre: 'Journal de nettoyage',
+    icone: FontAwesomeIcons.broom,
+    fond: Color(0xFFFFF4E4),
+    teinte: Color(0xFFE8710A),
+    route: Routes.journalNettoyage,
+    permission: AppPermission.viewCleaningLog,
+  ),
+  _Module(
     titre: 'Charges annulées',
     icone: FontAwesomeIcons.ban,
     fond: Color(0xFFFDF2E7),

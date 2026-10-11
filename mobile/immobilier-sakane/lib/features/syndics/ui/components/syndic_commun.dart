@@ -16,6 +16,8 @@ bool get peutVoirHistoriqueSyndics => peut(AppPermission.viewSyndicHistory);
 
 bool get peutRenvoyerContratSyndic => peut(AppPermission.resendSyndicContract);
 
+bool get peutVoirGroupesWhatsapp => peut(AppPermission.viewWhatsappGroups);
+
 /// Au moins une action de gestion sur les syndics.
 bool get estAdminSyndics => peutCreerSyndic || peutModifierSyndic || peutSupprimerSyndic;
 

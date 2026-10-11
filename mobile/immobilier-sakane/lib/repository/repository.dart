@@ -1,4 +1,9 @@
 import 'package:immobilier/models/bien_desactive.dart';
+import 'package:immobilier/models/activite_agents.dart';
+import 'package:immobilier/models/journal_nettoyage.dart';
+import 'package:immobilier/models/charge_fixe.dart';
+import 'package:immobilier/models/groupe_whatsapp.dart';
+import 'package:immobilier/models/formulaire_bien.dart';
 import 'package:immobilier/models/reception_whatsapp.dart';
 import 'package:immobilier/models/module_accueil.dart';
 import 'package:immobilier/models/categories_immobilier.dart';
@@ -507,9 +512,28 @@ class Repository {
   Future<Map<String, dynamic>> reglagesSyndic({int? bookingId}) =>
       apiClient.reglagesSyndic(bookingId: bookingId);
 
+  // ================= Groupes WhatsApp =================
+
+  Future<GroupesWhatsapp> groupesWhatsapp({bool sansWhatsapp = false}) =>
+      apiClient.groupesWhatsapp(sansWhatsapp: sansWhatsapp);
+
+  Future<GroupeWhatsapp> ajouterGroupeWhatsapp(
+          {String? jid, String? nom, String? lien}) =>
+      apiClient.ajouterGroupeWhatsapp(jid: jid, nom: nom, lien: lien);
+
+  Future<GroupeWhatsapp> modifierGroupeWhatsapp(int id, {String? nom, bool? actif}) =>
+      apiClient.modifierGroupeWhatsapp(id, nom: nom, actif: actif);
+
+  Future<GroupeWhatsapp> verifierGroupeWhatsapp(int id) =>
+      apiClient.verifierGroupeWhatsapp(id);
+
+  Future<void> supprimerGroupeWhatsapp(int id) =>
+      apiClient.supprimerGroupeWhatsapp(id);
+
   Future<String> partagerContratSyndic(int bookingId,
-          {required String telephone, required String message, bool enregistrer = false}) =>
+          {String? telephone, int? groupe, required String message, bool enregistrer = false}) =>
       apiClient.partagerContratSyndic(bookingId,
+          groupe: groupe,
           telephone: telephone, message: message, enregistrer: enregistrer);
 
   Future<ApercuSuppression> apercuSuppression(int bookingId) => apiClient.apercuSuppression(bookingId);
@@ -531,8 +555,10 @@ class Repository {
     bool actif = true,
     String? notes,
     required List<int> biens,
+    int? groupe,
   }) =>
-      apiClient.enregistrerSyndic(id: id, nom: nom, telephone: telephone, actif: actif, notes: notes, biens: biens);
+      apiClient.enregistrerSyndic(id: id, nom: nom, telephone: telephone,
+          actif: actif, notes: notes, biens: biens, groupe: groupe);
 
   Future<void> supprimerSyndic(int id) => apiClient.supprimerSyndic(id);
 
@@ -1007,6 +1033,55 @@ Future<void> ouvrirCaisse({double? montant, bool reporter = false}) =>
   Future<BienDesactive> reactiverBien(int id) => apiClient.reactiverBien(id);
 
   Future<List<BienDesactive>> biensDesactives() => apiClient.biensDesactives();
+
+  // ================= Activite de l'equipe =================
+
+  Future<ActiviteAgents> activiteAgents(
+          {required String du, required String au, String groupe = 'jour'}) =>
+      apiClient.activiteAgents(du: du, au: au, groupe: groupe);
+
+  Future<JournalNettoyage> journalNettoyage({
+    required String du,
+    required String au,
+    int? bien,
+    int? agent,
+    String? recherche,
+  }) =>
+      apiClient.journalNettoyage(
+          du: du, au: au, bien: bien, agent: agent, recherche: recherche);
+
+  // ================= Charges fixes =================
+
+  Future<ChargesFixes> chargesFixes(
+          {required String du, required String au, String? categorie}) =>
+      apiClient.chargesFixes(du: du, au: au, categorie: categorie);
+
+  Future<Charge> ajouterChargeFixe(SaisieChargeFixe saisie, {File? document}) =>
+      apiClient.ajouterChargeFixe(saisie, document: document);
+
+  Future<Charge> modifierChargeFixe(int id, SaisieChargeFixe saisie) =>
+      apiClient.modifierChargeFixe(id, saisie);
+
+  Future<void> modifierRecurrenceCharge(
+    int id, {
+    String? nom,
+    double? montant,
+    int? jour,
+    String? categorie,
+    String? categorieLibelle,
+  }) =>
+      apiClient.modifierRecurrenceCharge(id,
+          nom: nom,
+          montant: montant,
+          jour: jour,
+          categorie: categorie,
+          categorieLibelle: categorieLibelle);
+
+  Future<void> arreterRecurrenceCharge(int id) =>
+      apiClient.arreterRecurrenceCharge(id);
+
+  /// Les types de biens, leurs caracteristiques et les equipements.
+  Future<FormulaireBien> formulaireBien() => apiClient.formulaireBien();
 
   // ================= Droits et permissions (administrateur) =================
 

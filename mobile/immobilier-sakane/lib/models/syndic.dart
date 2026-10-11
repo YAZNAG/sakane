@@ -1,3 +1,5 @@
+import 'package:immobilier/models/groupe_whatsapp.dart';
+
 /// Un syndic d'immeuble : il reçoit le contrat public de chaque nouvelle
 /// réservation, prolongation ou raccourcissement dans l'un de ses biens.
 /// Un bien peut avoir plusieurs syndics.
@@ -5,6 +7,11 @@ class Syndic {
   final int id;
   final String nom;
   final String telephone;
+
+  /// Le groupe WhatsApp ou ce syndic recoit, quand il y en a un : le contrat
+  /// part alors dans le groupe plutot qu'a son seul numero.
+  final GroupeDuSyndic? groupe;
+
   final bool actif;
   final String? notes;
   final int nombreBiens;
@@ -16,6 +23,7 @@ class Syndic {
     required this.id,
     required this.nom,
     required this.telephone,
+    this.groupe,
     this.actif = true,
     this.notes,
     this.nombreBiens = 0,
@@ -29,6 +37,9 @@ class Syndic {
       id: (json['id'] as num?)?.toInt() ?? 0,
       nom: (json['nom'] ?? '').toString(),
       telephone: (json['telephone'] ?? '').toString(),
+      groupe: json['groupe'] is Map
+          ? GroupeDuSyndic.fromJson(Map<String, dynamic>.from(json['groupe'] as Map))
+          : null,
       actif: json['actif'] != false,
       notes: json['notes']?.toString(),
       nombreBiens: (json['nombreBiens'] as num?)?.toInt() ?? 0,

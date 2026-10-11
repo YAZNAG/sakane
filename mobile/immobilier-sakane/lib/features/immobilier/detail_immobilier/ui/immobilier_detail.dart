@@ -12,7 +12,9 @@ import 'package:immobilier/features/biens_desactives/outils_desactivation.dart';
 import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/detail_immobilier/cubit/immobilier_detail_cubit.dart';
 import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/detail_bien_commun.dart';
+import 'package:immobilier/core/utils/icones_serveur.dart';
 import 'package:immobilier/features/immobilier/detail_immobilier/ui/components/partage_bien.dart';
+import 'package:immobilier/models/feature.dart';
 import 'package:immobilier/features/immobilier/home_immobilier/ui/components/fiche_bien_commun.dart'
     show SurTitre;
 import 'package:immobilier/models/media.dart';
@@ -123,6 +125,7 @@ class _ImmobilierDetailPageState extends State<ImmobilierDetailPage> {
           borderRadius: BorderRadius.circular(rayonAccueil),
         ),
       ..._description(bien),
+      ..._caracteristiques(bien),
       ..._equipements(bien),
       ..._localisation(bien),
       ..._proprietaire(bien),
@@ -491,18 +494,95 @@ class _ImmobilierDetailPageState extends State<ImmobilierDetailPage> {
   bool _depasse(String texte) =>
       texte.length > 120 || texte.split('\n').length > 3;
 
-  // ── Équipements ─────────────────────────────────────────────────
+  // ── Ce qui est propre au type ───────────────────────────────────
+
+  /// Salons d'un appartement, titre foncier d'un terrain, puits d'une
+  /// ferme : le serveur envoie ces caractéristiques déjà mises en mots.
+  List<Widget> _caracteristiques(Realestate bien) {
+    final lignes = bien.caracteristiquesLues ?? const <CaracteristiqueLue>[];
+    if (lignes.isEmpty) return const [];
+
+    return [
+      CarteAccueil(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TitreSectionDetail(
+              'Propre aux ${(bien.category?.name ?? 'biens').toLowerCase()}',
+            ),
+            const SizedBox(height: 4),
+            for (final c in lignes)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(iconeServeur(c.icone),
+                        size: 17, color: texteDouxAccueil),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        c.libelle,
+                        style: const TextStyle(
+                            fontSize: 13, color: texteDouxAccueil),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      c.valeur,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: texteAccueil,
+                        fontFeatures: chiffresTabulaires,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  // ── Équipements ───────────────────────────────────────────────────────────────
+
+  /// Les familles, dans l'ordre du catalogue ; ce qui n'a pas de famille
+  /// connue ferme la liste.
+  static const Map<String, String> _famillesEquipements = {
+    'interieur': 'Intérieur',
+    'exterieur': 'Extérieur',
+    'confort': 'Confort et énergie',
+    'equipements': 'Électroménager',
+    'securite': 'Sécurité',
+    'services': 'Services et immeuble',
+  };
 
   List<Widget> _equipements(Realestate bien) {
-    final noms = (bien.features ?? [])
-        .map((f) => f.name?.trim() ?? '')
-        .where((n) => n.isNotEmpty)
+    final tous = (bien.features ?? [])
+        .where((f) => (f.name ?? '').trim().isNotEmpty)
         .toList();
-    if (noms.isEmpty) return const [];
+    if (tous.isEmpty) return const [];
 
-    final replie = !_equipementsOuverts && noms.length > _equipementsVisibles;
-    final montres = replie ? noms.take(_equipementsVisibles).toList() : noms;
-    final restants = noms.length - montres.length;
+    final parFamille = <String, List<Feature>>{};
+    for (final code in _famillesEquipements.keys) {
+      final liste = tous.where((f) => f.groupe == code).toList()
+        ..sort((a, b) => (a.ordre ?? 999).compareTo(b.ordre ?? 999));
+      if (liste.isNotEmpty) parFamille[_famillesEquipements[code]!] = liste;
+    }
+    final reste = tous
+        .where((f) => !_famillesEquipements.containsKey(f.groupe ?? ''))
+        .toList();
+    if (reste.isNotEmpty) {
+      parFamille[parFamille.isEmpty ? 'Équipements' : 'Autres'] = reste;
+    }
+
+    // Replie, la carte ne montre que les premieres puces, familles
+    // confondues : la fiche reste courte au premier regard.
+    final replie = !_equipementsOuverts && tous.length > _equipementsVisibles;
+    final restants = tous.length - _equipementsVisibles;
 
     return [
       CarteAccueil(
@@ -511,27 +591,54 @@ class _ImmobilierDetailPageState extends State<ImmobilierDetailPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const TitreSectionDetail('Équipements'),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final nom in montres) PuceEquipement(nom),
-                if (restants > 0)
+            if (replie) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final f in tous.take(_equipementsVisibles))
+                    PuceEquipement(f.name!.trim()),
                   PuceEquipement(
                     '+ $restants',
                     accentuee: true,
                     onTap: () => setState(() => _equipementsOuverts = true),
-                  )
-                else if (_equipementsOuverts &&
-                    noms.length > _equipementsVisibles)
-                  PuceEquipement(
+                  ),
+                ],
+              ),
+            ] else ...[
+              for (final famille in parFamille.entries) ...[
+                const SizedBox(height: 12),
+                Text(
+                  famille.key.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .4,
+                    color: texteDouxAccueil,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final f in famille.value) PuceEquipement(f.name!.trim()),
+                  ],
+                ),
+              ],
+              if (tous.length > _equipementsVisibles) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: PuceEquipement(
                     'Réduire',
                     accentuee: true,
                     onTap: () => setState(() => _equipementsOuverts = false),
                   ),
+                ),
               ],
-            ),
+            ],
           ],
         ),
       ),

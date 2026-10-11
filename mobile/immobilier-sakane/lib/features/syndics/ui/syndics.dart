@@ -11,6 +11,7 @@ import 'package:immobilier/core/constants/enums/app_status.dart';
 import 'package:immobilier/core/utils/show_toast.dart';
 import 'package:immobilier/features/syndics/cubit/syndics_cubit.dart';
 import 'package:immobilier/features/syndics/ui/components/syndic_commun.dart';
+import 'package:immobilier/features/syndics/ui/groupes_whatsapp.dart';
 import 'package:immobilier/features/syndics/ui/historique_envois.dart';
 import 'package:immobilier/models/syndic.dart';
 import 'package:immobilier/routes.dart';
@@ -107,6 +108,14 @@ class _SyndicsPageState extends State<SyndicsPage> {
         elevation: 0,
         centerTitle: true,
         actions: [
+          // Les groupes WhatsApp : un envoi peut viser un groupe entier
+          // plutot qu'un seul numero.
+          if (peutVoirGroupesWhatsapp)
+            IconButton(
+              tooltip: 'Groupes WhatsApp',
+              icon: const Icon(Icons.groups_outlined, color: Colors.white),
+              onPressed: () => GroupesWhatsappPage.ouvrir(context),
+            ),
           if (peutVoirHistoriqueSyndics)
           IconButton(
             tooltip: 'Historique des envois',

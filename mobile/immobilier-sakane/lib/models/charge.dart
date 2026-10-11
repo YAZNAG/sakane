@@ -11,6 +11,11 @@ class Charge {
   String? description;
   String? type;
   String? status;
+
+  /// La famille d'une charge fixe (« salaires », « loyers »...) et son nom
+  /// affiche : pour « autre », celui que l'utilisateur lui a donne.
+  String? categorie;
+  String? categorieLibelle;
   double? amount;
   Realestate? realEstate;
   DateTime? createdAt;
@@ -35,6 +40,8 @@ class Charge {
     this.description,
     this.type,
     this.status,
+    this.categorie,
+    this.categorieLibelle,
     this.amount,
     this.realEstate,
     this.createdAt,
@@ -75,6 +82,8 @@ class Charge {
       description: json['description']  ,
       type: json['type']  ,
       status: json['status']  ,
+      categorie: json['categorie'],
+      categorieLibelle: json['categorieLibelle'],
       amount: (json['amount'] as num?)?.toDouble(),
       realEstate:json['realestate']!=null?Realestate.fromJson(json['realestate']):null,
       createdAt: json["createdAt"]!=null?DateTime.parse(json["createdAt"]):null,
@@ -106,6 +115,8 @@ class Charge {
       description: description ?? this.description,
       type: type ?? this.type,
       status: status ?? this.status,
+      categorie: this.categorie,
+      categorieLibelle: this.categorieLibelle,
       amount: amount ?? this.amount,
       realEstate: realEstate ?? this.realEstate,
       createdAt: createdAt ?? this.createdAt,

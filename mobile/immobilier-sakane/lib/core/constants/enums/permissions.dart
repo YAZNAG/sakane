@@ -72,6 +72,14 @@ enum AppPermission {
   cancelCharge('cancel_charge'),
   deleteCharge('delete_charge'),
   viewCancelledCharges('view_cancelled_charges'),
+  viewFixedCharges('view_fixed_charges'),
+  createFixedCharge('create_fixed_charge'),
+  updateFixedCharge('update_fixed_charge'),
+  manageFixedChargeRecurrence('manage_fixed_charge_recurrence'),
+
+  // Activité de l'équipe
+  viewAgentActivity('view_agent_activity'),
+  viewCleaningLog('view_cleaning_log'),
   viewProgramedCharges('view_programed_charges'),
   createProgramedCharge('create_programed_charge'),
   updateProgramedCharge('update_programed_charge'),
@@ -130,6 +138,10 @@ enum AppPermission {
   updateSyndic('update_syndic'),
   deleteSyndic('delete_syndic'),
   viewSyndicHistory('view_syndic_history'),
+
+  // Groupes WhatsApp
+  viewWhatsappGroups('view_whatsapp_groups'),
+  manageWhatsappGroups('manage_whatsapp_groups'),
   resendSyndicContract('resend_syndic_contract'),
   // Location longue durée
   viewLeases('view_leases'), // Alwed seulement

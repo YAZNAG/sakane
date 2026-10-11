@@ -11,6 +11,9 @@ import 'package:immobilier/core/services/shared_pref_service.dart';
 import 'package:immobilier/features/app_inactive/ui/app_inactive.dart';
 import 'package:immobilier/features/charges_new/charges/add_charge/ui/add_charge.dart';
 import 'package:immobilier/features/charges_new/charges/list/ui/charges.dart';
+import 'package:immobilier/features/activite_equipe/activite_agents/ui/activite_agents.dart';
+import 'package:immobilier/features/activite_equipe/journal_nettoyage/ui/journal_nettoyage.dart';
+import 'package:immobilier/features/charges_new/fixes/ui/charges_fixes.dart';
 import 'package:immobilier/features/charges_new/home/ui/home.dart';
 import 'package:immobilier/features/charges_new/programed_charges/add_programed_charge/ui/add_modify_programed_charge.dart';
 import 'package:immobilier/features/charges_new/programed_charges/list/ui/programed_charges.dart';
@@ -141,6 +144,9 @@ class Routes {
   static const String exportReservations = "/export-reservations";
   static const String corbeilleReservations = "/corbeille-reservations";
   static const String chargesAnnulees = "/charges-annulees";
+  static const String chargesFixes = "/charges-fixes";
+  static const String activiteAgents = "/activite-agents";
+  static const String journalNettoyage = "/journal-nettoyage";
   static const String nouvelleReservation = "/nouvelle-reservation";
   // Caisse ; ?action=encaisser|ouvrir ouvre directement la saisie.
   static const String caisses = "/caisses";
@@ -573,6 +579,21 @@ class Routes {
           path: campagnes,
           pageBuilder: (cxt, state) =>
               NoTransitionPage(child: CampagnesPage.page())
+      ),
+      GoRoute(
+          path: chargesFixes,
+          pageBuilder: (cxt, state) =>
+              NoTransitionPage(child: ChargesFixesPage.page())
+      ),
+      GoRoute(
+          path: activiteAgents,
+          pageBuilder: (cxt, state) =>
+              NoTransitionPage(child: ActiviteAgentsPage.page())
+      ),
+      GoRoute(
+          path: journalNettoyage,
+          pageBuilder: (cxt, state) =>
+              NoTransitionPage(child: JournalNettoyagePage.page())
       ),
       GoRoute(
           path: chargesAnnulees,

@@ -16,6 +16,11 @@ class AddModifyImmState {
   List<City>? cities;
   List<Region>? regions;
   List<Feature>? features;
+
+  /// Les types de biens, leurs caracteristiques propres et les
+  /// equipements ranges par famille. Null quand le serveur ne l'a pas
+  /// donne : le formulaire se contente alors de ses champs communs.
+  FormulaireBien? formulaire;
   List<Owner>? owners;
   List<Secteur>? secteurs;
   List<Dossier>? dossiers;
@@ -41,6 +46,7 @@ class AddModifyImmState {
     this.cities,
     this.regions,
     this.features,
+    this.formulaire,
     this.owners,
     this.secteurs,
     this.dossiers,
@@ -57,6 +63,7 @@ class AddModifyImmState {
     List<City>? cities,
     List<Region>? regions,
     List<Feature>? features,
+    FormulaireBien? formulaire,
     List<Owner>? owners,
     List<Secteur>? secteurs,
     List<Dossier>? dossiers,
@@ -83,6 +90,7 @@ class AddModifyImmState {
       cities: cities ?? this.cities,
       regions: regions ?? this.regions,
       features: features ?? this.features,
+      formulaire: formulaire ?? this.formulaire,
       owners: owners ?? this.owners,
       secteurs: secteurs ?? this.secteurs,
       dossiers: dossiers ?? this.dossiers,

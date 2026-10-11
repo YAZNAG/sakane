@@ -301,6 +301,7 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
     final adresse = PartageBien.adresseComplete(_bien);
     final description = _bien.description?.trim() ?? '';
     final caracteristiques = PartageBien.caracteristiques(_bien);
+    final prix = PartageBien.prix(_bien);
 
     return [
       _CaseAcocher(
@@ -328,6 +329,12 @@ class _FeuillePartageBienState extends State<FeuillePartageBien> {
         actif: caracteristiques.isNotEmpty,
         onChanged: (v) =>
             setState(() => _options = _options.copyWith(caracteristiques: v)),
+      ),
+      _CaseAcocher(
+        libelle: 'Prix',
+        valeur: _options.prix,
+        actif: prix.isNotEmpty,
+        onChanged: (v) => setState(() => _options = _options.copyWith(prix: v)),
       ),
       _CaseAcocher(
         libelle: 'Lien Google Maps',

@@ -3,24 +3,31 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../routes.dart';
 import 'package:immobilier/core/constants/app_colors.dart';
+import 'package:immobilier/core/constants/enums/permissions.dart';
+import 'package:immobilier/core/dependencies/dependencies.dart';
+import 'package:immobilier/features/activite_equipe/commun/activite_ui.dart';
+import 'package:immobilier/models/manager.dart';
 
-
+/// L'entrée du module des charges : les dépenses courantes d'un côté, ce
+/// qui revient chaque mois de l'autre.
 class ChargesHome extends StatefulWidget {
   final int? propertyId;
 
-  const ChargesHome({Key? key, this.propertyId}) : super(key: key);
+  const ChargesHome({super.key, this.propertyId});
 
   @override
   State<ChargesHome> createState() => _ChargesHomeState();
 }
 
 class _ChargesHomeState extends State<ChargesHome> {
+  final Manager _manager = Dependencies.get<Manager>();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFFF4F5F7),
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Charges',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
@@ -29,34 +36,46 @@ class _ChargesHomeState extends State<ChargesHome> {
         elevation: 0,
         centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+        children: [
+          _buildOptionCard(
+            icon: Icons.receipt_long_outlined,
+            title: "Charges courantes",
+            description:
+                "Les dépenses du quotidien : consulter, ajouter, valider",
+            color: const Color(0xFFD97E1A),
+            onTap: () => navigate(prepareRoute(Routes.chargesList)),
+          ),
+          if (_manager.can(AppPermission.viewFixedCharges)) ...[
+            const SizedBox(height: 12),
             _buildOptionCard(
-              icon: Icons.receipt_long,
-              title: "Charges",
-              description: "Consulter et ajouter les charges enregistrées",
-              color: Colors.orange.shade700,
-              backgroundColor: Colors.orange.shade50,
-              onTap: () {
-                final route=prepareRoute(Routes.chargesList);
-                print(route);
-                navigate(route);
-              },
+              icon: Icons.event_repeat_outlined,
+              title: "Charges fixes",
+              description:
+                  "Salaires, abonnements, loyers, taxes : par famille, et chaque mois",
+              color: const Color(0xFF7B4FD6),
+              onTap: () => navigate(Routes.chargesFixes),
             ),
-            // La carte « Charges Programmées » a été retirée de ce
-            // module : l'écran et sa route (Routes.programedCharges)
-            // existent toujours, ils ne sont simplement plus proposés ici.
           ],
-        ),
+          if (_manager.can(AppPermission.viewCancelledCharges)) ...[
+            const SizedBox(height: 12),
+            _buildOptionCard(
+              icon: Icons.block_outlined,
+              title: "Charges annulées",
+              description: "Ce qui a été repris, par qui et quand",
+              color: couleurRougeActivite,
+              onTap: () => navigate(Routes.chargesAnnulees),
+            ),
+          ],
+        ],
       ),
     );
   }
-  String prepareRoute(String route){
-    if(widget.propertyId!=null){
-      route+="?realestate=${widget.propertyId}";
+
+  String prepareRoute(String route) {
+    if (widget.propertyId != null) {
+      route += "?realestate=${widget.propertyId}";
     }
     return route;
   }
@@ -66,61 +85,58 @@ class _ChargesHomeState extends State<ChargesHome> {
     required String title,
     required String description,
     required Color color,
-    required Color backgroundColor,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: backgroundColor,
-                borderRadius: BorderRadius.circular(12),
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: couleurBordureActivite),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 25),
               ),
-              child: Icon(icon, color: color, size: 32),
-            ),
-            SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.bold,
+                        color: couleurTexteActivite,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    description,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                          fontSize: 12, height: 1.3, color: couleurGrisActivite),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Icon(Icons.arrow_forward_ios, color: Colors.grey.shade400, size: 16),
-          ],
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, color: Color(0xFF98A6AE)),
+            ],
+          ),
         ),
       ),
     );

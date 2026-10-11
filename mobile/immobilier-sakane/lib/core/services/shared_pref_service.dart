@@ -23,6 +23,12 @@ class SharedPrefService{
   }
 
   void putValue(String key,value){
+    // Une valeur absente efface la cle : mieux vaut cela qu'une exception
+    // au milieu d'une connexion reussie.
+    if(value==null){
+      removeRecord(key);
+      return;
+    }
     switch(value.runtimeType){
       case int:
         _pref.setInt(key, value);

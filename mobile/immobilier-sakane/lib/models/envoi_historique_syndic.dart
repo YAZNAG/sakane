@@ -129,6 +129,10 @@ class EnvoiHistoriqueSyndic {
   final String? syndicNom;
   final String? telephone;
 
+  /// Le groupe WhatsApp ou l'envoi est parti, quand ce n'est pas un numero.
+  final int? groupeId;
+  final String? groupeNom;
+
   /// envoye, echec, ignore… (valeur libre : un statut inconnu de
   /// l'application s'affiche avec son statutLibelle).
   final String statut;
@@ -150,6 +154,8 @@ class EnvoiHistoriqueSyndic {
     this.syndicId,
     this.syndicNom,
     this.telephone,
+    this.groupeId,
+    this.groupeNom,
     required this.statut,
     this.statutLibelle,
     this.erreur,
@@ -170,6 +176,12 @@ class EnvoiHistoriqueSyndic {
       syndicId: syndic == null ? null : _entierOuNull(syndic['id']),
       syndicNom: syndic == null ? null : _texte(syndic['nom'] ?? syndic['name']),
       telephone: _texte(json['telephone'] ?? json['phone']),
+      groupeId: _carte(json['groupe']) == null
+          ? null
+          : _entierOuNull(_carte(json['groupe'])!['id']),
+      groupeNom: _carte(json['groupe']) == null
+          ? null
+          : _texte(_carte(json['groupe'])!['nom']),
       statut: _cle(json['statut']),
       statutLibelle: _texte(json['statutLibelle'] ?? json['statut_libelle']),
       erreur: _texte(json['erreur'] ?? json['error']),

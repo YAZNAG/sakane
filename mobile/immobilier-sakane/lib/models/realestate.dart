@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -40,6 +41,13 @@ class Realestate {
   TypeTransaction? typeTransaction;
   Etat? etat;
   List<Feature>? features;
+
+  /// Ce qui ne se demande qu'a ce type de bien : salons, titre foncier,
+  /// puits... La cle et sa valeur, telles que le serveur les range.
+  Map<String, dynamic>? caracteristiques;
+
+  /// Les memes, mises en mots par le serveur : « Salons : 2 ». Lecture seule.
+  List<CaracteristiqueLue>? caracteristiquesLues;
   Owner? owner;
   List<Media>? media;
   List<int>? trashImages;
@@ -72,6 +80,8 @@ class Realestate {
     this.typeTransaction,
     this.etat,
     this.features,
+    this.caracteristiques,
+    this.caracteristiquesLues,
     this.owner,
     this.media,
     this.trashImages,
@@ -185,6 +195,15 @@ class Realestate {
           ? TypeTransaction.fromJson(json['typeTransaction'])
           : null,
       etat: json['etat'] != null ? Etat.fromJson(json['etat']) : null,
+      caracteristiques: json['caracteristiques'] is Map
+          ? Map<String, dynamic>.from(json['caracteristiques'] as Map)
+          : null,
+      caracteristiquesLues: json['caracteristiquesLisibles'] is List
+          ? (json['caracteristiquesLisibles'] as List)
+              .whereType<Map>()
+              .map((e) => CaracteristiqueLue.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : null,
       features: json['features'] != null
           ? (json['features'] as List).map((e) => Feature.fromJson(e)).toList()
           : null,
@@ -258,6 +277,9 @@ class Realestate {
       'typeTransaction': typeTransaction?.value,
       'etat': etat?.code,
       'features[]': (features??[]).map((e) => e.id).toList(),
+      'caracteristiques': caracteristiques == null || caracteristiques!.isEmpty
+          ? null
+          : jsonEncode(caracteristiques),
       'owner': owner?.id,
       'images[]':mpfls,
       'trashImages[]':trashImages??[]
@@ -286,6 +308,7 @@ class Realestate {
     TypeTransaction? typeTransaction,
     Etat? etat,
     List<Feature>? features,
+    Map<String, dynamic>? caracteristiques,
     Owner? owner,
     List<Media>? media,
     List<int>? trashImages,
@@ -315,6 +338,8 @@ class Realestate {
       typeTransaction: typeTransaction ?? this.typeTransaction,
       etat: etat ?? this.etat,
       features: features ?? this.features,
+      caracteristiques: caracteristiques ?? this.caracteristiques,
+      caracteristiquesLues: this.caracteristiquesLues,
       owner: owner ?? this.owner,
       media: media ?? this.media,
       trashImages: trashImages??this.trashImages,
@@ -327,4 +352,27 @@ class Realestate {
       ..airbnbRelie = airbnbRelie
       ..desactiveLe = desactiveLe;
   }
+}
+
+/// Une caracteristique telle qu'elle s'affiche : « Salons : 2 ».
+class CaracteristiqueLue {
+  final String cle;
+  final String libelle;
+  final String valeur;
+  final String? icone;
+
+  const CaracteristiqueLue({
+    required this.cle,
+    required this.libelle,
+    required this.valeur,
+    this.icone,
+  });
+
+  factory CaracteristiqueLue.fromJson(Map<String, dynamic> json) =>
+      CaracteristiqueLue(
+        cle: json['cle']?.toString() ?? '',
+        libelle: json['libelle']?.toString() ?? '',
+        valeur: json['valeur']?.toString() ?? '',
+        icone: json['icone']?.toString(),
+      );
 }

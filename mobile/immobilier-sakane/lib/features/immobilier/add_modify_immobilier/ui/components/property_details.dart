@@ -4,6 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:immobilier/core/extensions/extension_on_date.dart';
 import 'package:immobilier/features/home/ui/components/accueil_commun.dart';
 import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/assistant_bien_commun.dart';
+import 'package:immobilier/features/immobilier/add_modify_immobilier/ui/components/caracteristiques_bien.dart';
+import 'package:immobilier/models/formulaire_bien.dart';
 import '../../../../../models/etat.dart';
 import '../../../../../models/realestate.dart';
 import '../../bloc/add_modify_imm_bloc.dart';
@@ -42,6 +44,10 @@ class _PropertyDetailsState extends State<PropertyDetails> {
   final _etageController = TextEditingController();
   late final AddModifyImmBloc _bloc;
 
+  /// Ce qui ne se demande qu'à ce type de bien : salons, titre foncier,
+  /// façade... Le serveur dit quels champs poser pour le type choisi.
+  Map<String, dynamic> _caracteristiques = {};
+
   /// Les champs chiffrés n'acceptent que des chiffres.
   static final List<TextInputFormatter> _chiffres = [
     FilteringTextInputFormatter.digitsOnly,
@@ -53,6 +59,7 @@ class _PropertyDetailsState extends State<PropertyDetails> {
     // Le brouillon lit la saisie de l'etape affichee.
     _bloc = BlocProvider.of<AddModifyImmBloc>(context);
     _bloc.instantaneEtape = _instantane;
+    _caracteristiques = {...(_bloc.state.realestate?.caracteristiques ?? {})};
     WidgetsBinding.instance.addPostFrameCallback((_) {
       remplirFields();
     });
@@ -81,9 +88,38 @@ class _PropertyDetailsState extends State<PropertyDetails> {
     realestate.surface = entier(_surfaceController) ??
         num.tryParse(_surfaceController.text.trim().replaceAll(',', '.'));
     realestate.etage = entier(_etageController);
+    realestate.caracteristiques = {..._caracteristiques};
     final nr = realestate.copyWith();
     updateRealestate(nr);
     return nr;
+  }
+
+  String? get _codeType => _bloc.state.realestate?.category?.value;
+
+  FormulaireBien? get _formulaire => _bloc.state.formulaire;
+
+  /// Sans catalogue — serveur ancien, réseau coupé au chargement — tous
+  /// les champs restent proposés : mieux vaut un champ de trop qu'un
+  /// champ manquant.
+  List<String> get _communs =>
+      _formulaire?.communsPour(_codeType) ?? FormulaireBien.tousLesCommuns;
+
+  bool _demande(String champ) => _communs.contains(champ);
+
+  bool get _espaces => _demande('chambres') || _demande('salles_bain');
+
+  bool get _etagesDemandes => _demande('etages') || _demande('etage');
+
+  List<ChampCaracteristique> get _champsDuType =>
+      _formulaire?.champsPour(_codeType) ?? const [];
+
+  String get _nomDuType {
+    final code = _codeType;
+    if (code == null) return '';
+    for (final t in _formulaire?.types ?? const <TypeBienFormulaire>[]) {
+      if (t.code == code) return t.nom;
+    }
+    return '';
   }
 
   /// « 3 » ou rien : un nombre entier, jamais négatif.
@@ -151,8 +187,8 @@ class _PropertyDetailsState extends State<PropertyDetails> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    ChampTexteBien(
+                    if (_demande('date_construction')) const SizedBox(height: 16),
+                    if (_demande('date_construction')) ChampTexteBien(
                       libelle: 'Date de construction',
                       indication: 'Choisir une date',
                       controller: _constructionDateController,
@@ -169,68 +205,89 @@ class _PropertyDetailsState extends State<PropertyDetails> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 24),
-
-                    const TitreGroupeBien('Distribution des espaces'),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: ChampTexteBien(
-                            cle: _chambresCle,
-                            libelle: 'Chambres',
-                            indication: '0',
-                            controller: _roomsController,
-                            clavier: TextInputType.number,
-                            formats: _chiffres,
-                            validateur: _entierFacultatif,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ChampTexteBien(
-                            cle: _bainsCle,
-                            libelle: 'Salles de bain',
-                            indication: '0',
-                            controller: _bathroomsController,
-                            clavier: TextInputType.number,
-                            formats: _chiffres,
-                            validateur: _entierFacultatif,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    const TitreGroupeBien('Étages'),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: ChampTexteBien(
-                            cle: _etagesCle,
-                            libelle: "Nombre d'étages",
-                            indication: '0',
-                            controller: _nbEtagesController,
-                            clavier: TextInputType.number,
-                            formats: _chiffres,
-                            validateur: _entierFacultatif,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ChampTexteBien(
-                            cle: _etageCle,
-                            libelle: 'Étage du bien',
-                            indication: '0',
-                            controller: _etageController,
-                            clavier: TextInputType.number,
-                            formats: _chiffres,
-                            validateur: _entierFacultatif,
-                          ),
-                        ),
-                      ],
-                    ),
+                    // Un terrain n'a ni chambre ni salle de bain ; un local
+                    // n'a pas de chambres mais bien un étage. Le serveur
+                    // dit, pour chaque type, ce qui a un sens.
+                    if (_espaces) ...[
+                      const SizedBox(height: 24),
+                      const TitreGroupeBien('Distribution des espaces'),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_demande('chambres'))
+                            Expanded(
+                              child: ChampTexteBien(
+                                cle: _chambresCle,
+                                libelle: 'Chambres',
+                                indication: '0',
+                                controller: _roomsController,
+                                clavier: TextInputType.number,
+                                formats: _chiffres,
+                                validateur: _entierFacultatif,
+                              ),
+                            ),
+                          if (_demande('chambres') && _demande('salles_bain'))
+                            const SizedBox(width: 12),
+                          if (_demande('salles_bain'))
+                            Expanded(
+                              child: ChampTexteBien(
+                                cle: _bainsCle,
+                                libelle: 'Salles de bain',
+                                indication: '0',
+                                controller: _bathroomsController,
+                                clavier: TextInputType.number,
+                                formats: _chiffres,
+                                validateur: _entierFacultatif,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    if (_etagesDemandes) ...[
+                      const SizedBox(height: 24),
+                      const TitreGroupeBien('Étages'),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_demande('etages'))
+                            Expanded(
+                              child: ChampTexteBien(
+                                cle: _etagesCle,
+                                libelle: "Nombre d'étages",
+                                indication: '0',
+                                controller: _nbEtagesController,
+                                clavier: TextInputType.number,
+                                formats: _chiffres,
+                                validateur: _entierFacultatif,
+                              ),
+                            ),
+                          if (_demande('etages') && _demande('etage'))
+                            const SizedBox(width: 12),
+                          if (_demande('etage'))
+                            Expanded(
+                              child: ChampTexteBien(
+                                cle: _etageCle,
+                                libelle: 'Étage du bien',
+                                indication: '0',
+                                controller: _etageController,
+                                clavier: TextInputType.number,
+                                formats: _chiffres,
+                                validateur: _entierFacultatif,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    // Ce qui n'appartient qu'à ce type de bien.
+                    if (_champsDuType.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      TitreGroupeBien(titreCaracteristiques(_nomDuType)),
+                      ChampsCaracteristiques(
+                        champs: _champsDuType,
+                        valeurs: _caracteristiques,
+                        onChange: (valeurs) => _caracteristiques = valeurs,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -317,6 +374,7 @@ class _PropertyDetailsState extends State<PropertyDetails> {
       _constructionDateController.text =
           realestate.dateConstruction?.formattedDateFr ?? "";
       _etageController.text = realestate.etage?.toString() ?? "";
+      _caracteristiques = {...(realestate.caracteristiques ?? {})};
       setState(() {});
     }
   }
@@ -325,11 +383,14 @@ class _PropertyDetailsState extends State<PropertyDetails> {
     Realestate realestate = getRealEstate();
     int? entier(TextEditingController c) =>
         c.text.trim().isEmpty ? null : int.tryParse(c.text.trim());
-    realestate.nbBathroom = entier(_bathroomsController);
-    realestate.nbEtages = entier(_nbEtagesController);
-    realestate.nbRooms = entier(_roomsController);
+    // Un champ que le type ne demande pas ne garde pas une ancienne
+    // valeur : elle se lirait plus tard sur la fiche sans avoir de sens.
+    realestate.nbBathroom = _demande('salles_bain') ? entier(_bathroomsController) : null;
+    realestate.nbEtages = _demande('etages') ? entier(_nbEtagesController) : null;
+    realestate.nbRooms = _demande('chambres') ? entier(_roomsController) : null;
     realestate.surface = entier(_surfaceController);
-    realestate.etage = entier(_etageController);
+    realestate.etage = _demande('etage') ? entier(_etageController) : null;
+    realestate.caracteristiques = {..._caracteristiques};
 
     updateRealestate(realestate.copyWith());
   }

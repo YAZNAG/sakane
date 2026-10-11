@@ -1,3 +1,4 @@
+import 'package:immobilier/features/immobilier/actions_bien.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -635,6 +636,10 @@ class _BauxPageState extends State<BauxPage> {
               ],
             ),
           ),
+          MenuActionsBien(
+            bienId: b.bien.id,
+            onRetour: () => _cubit.chargerBaux(silencieux: true),
+          ),
         ],
       ),
     );
@@ -790,10 +795,19 @@ class _BauxPageState extends State<BauxPage> {
               ],
             ),
           ),
-          if (bail == null && peutCreerBail)
-            const Icon(Icons.add_circle_outline, color: CouleursBail.teinte)
-          else if (bail != null)
-            const Icon(Icons.chevron_right, color: CouleursBail.texteDoux),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MenuActionsBien(
+                bienId: b.id,
+                onRetour: () => _cubit.chargerBiens(silencieux: true),
+              ),
+              if (bail == null && peutCreerBail)
+                const Icon(Icons.add_circle_outline, color: CouleursBail.teinte)
+              else if (bail != null)
+                const Icon(Icons.chevron_right, color: CouleursBail.texteDoux),
+            ],
+          ),
         ],
       ),
     );

@@ -8,6 +8,7 @@ import 'package:immobilier/components/loading_indicator.dart';
 import 'package:immobilier/core/constants/app_strings.dart';
 import 'package:immobilier/core/constants/enums/app_status.dart';
 import 'package:immobilier/features/baux/ui/components/baux_commun.dart';
+import 'package:immobilier/features/immobilier/actions_bien.dart';
 import 'package:immobilier/features/calendrier_bien/ui/components/outils_calendrier.dart';
 import 'package:immobilier/features/ventes/cubit/ventes_cubit.dart';
 import 'package:immobilier/features/ventes/ui/components/ventes_commun.dart';
@@ -258,7 +259,15 @@ class CarteBienVente extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, color: CouleursBail.texteDoux),
+          // Partager le bien, voir sa fiche, la corriger : les memes
+          // gestes que dans la location de vacances.
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MenuActionsBien(bienId: b.id),
+              const Icon(Icons.chevron_right, color: CouleursBail.texteDoux),
+            ],
+          ),
         ],
       );
     return CarteBail(
